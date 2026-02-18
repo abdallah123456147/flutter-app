@@ -35,8 +35,6 @@ class Recettes {
   });
 
   factory Recettes.fromMap(Map<String, dynamic> map) {
-    print('Parsing recipe: ${map['name']}');
-
     // Parse recette_ingredients with ingredients
     List<Ingredients>? ingredients = [];
     List<RecetteIngredient>? recetteIngredients = [];
@@ -44,7 +42,6 @@ class Recettes {
     if (map['recette_ingredients'] != null &&
         map['recette_ingredients'] is List) {
       final recetteIngList = (map['recette_ingredients'] as List);
-      print('Found ${recetteIngList.length} recipe ingredients');
 
       for (var item in recetteIngList) {
         try {
@@ -63,9 +60,7 @@ class Recettes {
             });
             recetteIngredients.add(recetteIng);
           }
-        } catch (e) {
-          print('Error parsing ingredient: $e');
-        }
+        } catch (_) {}
       }
     }
 
@@ -75,32 +70,25 @@ class Recettes {
       try {
         if (map['niveau'] is List) {
           final niveauList = (map['niveau'] as List);
-          print('Found ${niveauList.length} niveau items');
           for (var item in niveauList) {
             niveau.add(Niveau.fromMap(item as Map<String, dynamic>));
           }
         } else if (map['niveau'] is Map) {
-          print('Found single niveau object');
           final single = Map<String, dynamic>.from(map['niveau'] as Map);
           niveau.add(Niveau.fromMap(single));
         }
-      } catch (e) {
-        print('Error parsing niveau: $e');
-      }
+      } catch (_) {}
     }
 
     // Parse pays
     List<Pays>? pays = [];
     if (map['pays'] != null && map['pays'] is List) {
       final paysList = (map['pays'] as List);
-      print('Found ${paysList.length} pays items');
 
       for (var item in paysList) {
         try {
           pays.add(Pays.fromMap(item));
-        } catch (e) {
-          print('Error parsing pays: $e');
-        }
+        } catch (_) {}
       }
     }
 

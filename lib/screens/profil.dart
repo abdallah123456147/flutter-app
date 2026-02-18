@@ -4,15 +4,12 @@ import 'package:provider/provider.dart';
 import '../models/user.dart';
 import '../models/comments.dart';
 import '../models/recettes.dart';
-import 'package:bennasafi/services/favorites_database.dart';
 import 'package:bennasafi/services/comment_database.dart';
 import 'package:bennasafi/services/recettes_database.dart';
 import 'package:bennasafi/services/auth_service.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:bennasafi/models/favorites.dart';
 import 'package:bennasafi/screens/login_page.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'dart:io';
+import 'package:bennasafi/services/notification_service.dart';
 
 class ProfilePage extends StatefulWidget {
   final Users user;
@@ -85,10 +82,8 @@ class _ProfilePageState extends State<ProfilePage> {
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erreur lors du chargement des commentaires: $e'),
-          ),
+        NotificationService.showError(
+          'Erreur lors du chargement des commentaires: $e',
         );
       }
     }
@@ -384,55 +379,14 @@ class _ProfilePageState extends State<ProfilePage> {
   //   );
   // }
 
-  Widget _buildStatCard(String title, String count, IconData icon) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.green[50],
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.green[200]!),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: const Color(0xFF007A33), size: 24),
-          const SizedBox(height: 8),
-          Text(
-            count,
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF007A33),
-            ),
-          ),
-          Text(title, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-        ],
-      ),
-    );
-  }
-
-  // ===== Recipes Section =====
-  Widget _buildRecipesSection() {
-    if (_currentUser.photoRecette != null &&
-        _currentUser.photoRecette!.isNotEmpty) {
-      return SizedBox(
-        height: 120,
-        child: ListView(
-          scrollDirection: Axis.horizontal,
-          children: [_recipeCard(_currentUser.photoRecette!)],
-        ),
-      );
-    } else {
-      return const Text(
-        'Vous n\'avez pas encore ajouté de recette',
-        style: TextStyle(color: Colors.grey),
-      );
-    }
-  }
-
   // ===== Comments Section =====
   Widget _buildCommentsSection() {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF007A33)),
+        ),
+      );
     }
 
     if (_userComments.isEmpty) {
@@ -499,19 +453,30 @@ class _ProfilePageState extends State<ProfilePage> {
                   ],
                 ),
               ),
-              // Action buttons
-              Row(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.edit, size: 16),
-                    onPressed: () => _editComment(comment),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete, size: 16, color: Colors.red),
-                    onPressed: () => _deleteComment(comment),
-                  ),
-                ],
-              ),
+              // Action buttons - Only show if current user owns the comment
+              if (_isCommentOwner(comment))
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(
+                        Icons.edit,
+                        size: 16,
+                        color: Color(0xFF007A33),
+                      ),
+                      onPressed: () => _editComment(comment),
+                      tooltip: 'Modifier',
+                    ),
+                    IconButton(
+                      icon: const Icon(
+                        Icons.delete,
+                        size: 16,
+                        color: Colors.red,
+                      ),
+                      onPressed: () => _deleteComment(comment),
+                      tooltip: 'Supprimer',
+                    ),
+                  ],
+                ),
             ],
           ),
           const SizedBox(height: 8),
@@ -593,27 +558,6 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Widget _recipeCard(String imageUrl) {
-    return Container(
-      width: 100,
-      margin: const EdgeInsets.only(right: 10),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(15),
-        image: DecorationImage(
-          image: NetworkImage(imageUrl),
-          fit: BoxFit.cover,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black26,
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-    );
-  }
-
   // ===== Action Methods =====
   Future<void> _pickProfileImage() async {
     try {
@@ -652,35 +596,8 @@ class _ProfilePageState extends State<ProfilePage> {
 
       if (image != null) {
         try {
-          // Upload image to Supabase Storage
-          final fileName =
-              '${_currentUser.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-          final filePath = 'users/$fileName';
-
-          // Upload file to Supabase Storage bucket "images"
-          await Supabase.instance.client.storage
-              .from('images')
-              .upload(
-                filePath,
-                File(image.path),
-                fileOptions: const FileOptions(upsert: true),
-              );
-
-          // Get the public URL
-          final imageUrl = Supabase.instance.client.storage
-              .from('images')
-              .getPublicUrl(filePath);
-
-          debugPrint('Uploaded image URL: $imageUrl');
-
-          // Verify URL format
-          if (!imageUrl.startsWith('http')) {
-            throw Exception('Invalid image URL format: $imageUrl');
-          }
-
-          // Update user profile in database
           final authService = Provider.of<AuthService>(context, listen: false);
-          final success = await authService.updateProfile(photo: imageUrl);
+          final success = await authService.uploadProfilePhoto(image.path);
 
           if (success) {
             // Refresh user data from auth service (it should be updated already)
@@ -688,17 +605,12 @@ class _ProfilePageState extends State<ProfilePage> {
             setState(() {
               if (updatedUser != null) {
                 _currentUser = updatedUser;
-              } else {
-                _currentUser = _currentUser.copyWith(photo: imageUrl);
               }
             });
 
             if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Photo de profil mise à jour avec succès!'),
-                  backgroundColor: Colors.green,
-                ),
+              NotificationService.showSuccess(
+                'Photo de profil mise à jour avec succès!',
               );
             }
           } else {
@@ -710,22 +622,14 @@ class _ProfilePageState extends State<ProfilePage> {
               final errorMessage =
                   authService.lastError ??
                   'Erreur lors de la mise à jour de la photo';
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(errorMessage),
-                  backgroundColor: Colors.red,
-                ),
-              );
+              NotificationService.showError(errorMessage);
             }
           }
         } catch (e) {
           debugPrint('Error uploading image: $e');
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Erreur lors du téléchargement de l\'image: $e'),
-                backgroundColor: Colors.red,
-              ),
+            NotificationService.showError(
+              'Erreur lors du téléchargement de l\'image: $e',
             );
           }
         }
@@ -735,11 +639,8 @@ class _ProfilePageState extends State<ProfilePage> {
     } catch (e) {
       setState(() => _isUploadingImage = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erreur lors de la sélection de l\'image: $e'),
-            backgroundColor: Colors.red,
-          ),
+        NotificationService.showError(
+          'Erreur lors de la sélection de l\'image: $e',
         );
       }
     }
@@ -748,11 +649,8 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _saveProfile() async {
     if (_nameController.text.trim().isEmpty ||
         _emailController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Veuillez remplir tous les champs obligatoires'),
-          backgroundColor: Colors.red,
-        ),
+      NotificationService.showWarning(
+        'Veuillez remplir tous les champs obligatoires',
       );
       return;
     }
@@ -784,84 +682,155 @@ class _ProfilePageState extends State<ProfilePage> {
         });
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Profil mis à jour avec succès!'),
-              backgroundColor: Colors.green,
-            ),
-          );
+          NotificationService.showSuccess('Profil mis à jour avec succès!');
         }
       } else {
         if (mounted) {
           final errorMessage =
               authService.lastError ??
               'Erreur lors de la mise à jour du profil';
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
-          );
+          NotificationService.showError(errorMessage);
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erreur lors de la mise à jour: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        NotificationService.showError('Erreur lors de la mise à jour: $e');
       }
     } finally {
       setState(() => _isLoading = false);
     }
   }
 
+  bool _isCommentOwner(Comments comment) {
+    // Convert both IDs to comparable format
+    final currentUserId = int.tryParse(_currentUser.id ?? '');
+    return currentUserId != null && comment.userId == currentUserId;
+  }
+
   Future<void> _editComment(Comments comment) async {
+    if (!_isCommentOwner(comment)) {
+      NotificationService.showError(
+        'Vous ne pouvez éditer que vos propres commentaires',
+      );
+      return;
+    }
+
     final controller = TextEditingController(text: comment.comment ?? '');
+
+    if (!mounted) return;
 
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder:
           (context) => AlertDialog(
-            title: const Text('Modifier le commentaire'),
-            content: TextField(
-              controller: controller,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                hintText: 'Votre commentaire...',
-                border: OutlineInputBorder(),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            backgroundColor: Colors.white,
+            title: Row(
+              children: const [
+                Icon(Icons.edit, color: Color(0xFF007A33), size: 24),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Modifier le commentaire',
+                    style: TextStyle(
+                      color: Color(0xFF007A33),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: controller,
+                    maxLines: 3,
+                    minLines: 2,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      hintText: 'Votre commentaire...',
+                      hintStyle: const TextStyle(color: Colors.grey),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(
+                          color: Color(0xFF007A33),
+                          width: 1.5,
+                        ),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(
+                          color: Color(0xFF007A33),
+                          width: 1,
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(
+                          color: Color(0xFF007A33),
+                          width: 2,
+                        ),
+                      ),
+                      contentPadding: const EdgeInsets.all(12),
+                    ),
+                  ),
+                ],
               ),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('Annuler'),
+                child: const Text(
+                  'Annuler',
+                  style: TextStyle(color: Colors.grey),
+                ),
               ),
               ElevatedButton(
                 onPressed: () async {
-                  if (controller.text.trim().isNotEmpty) {
-                    try {
-                      final commentDb = CommentDatabase();
-                      await commentDb.updateComment(
-                        comment.id!,
-                        controller.text.trim(),
-                      );
+                  if (controller.text.trim().isEmpty) {
+                    NotificationService.showWarning(
+                      'Le commentaire ne peut pas être vide',
+                    );
+                    return;
+                  }
+                  try {
+                    final commentDb = CommentDatabase();
+                    await commentDb.updateComment(
+                      comment.id!,
+                      controller.text.trim(),
+                    );
+                    if (mounted) {
                       _loadUserComments();
                       Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Commentaire modifié avec succès!'),
-                        ),
-                      );
-                    } catch (e) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Erreur lors de la modification: $e'),
-                        ),
+                      NotificationService.showSuccess(
+                        'Commentaire modifié avec succès!',
                       );
                     }
+                  } catch (e) {
+                    NotificationService.showError(
+                      'Erreur lors de la modification: ${e.toString()}',
+                    );
                   }
                 },
-                child: const Text('Sauvegarder'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF007A33),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: const Text(
+                  'Sauvegarder',
+                  style: TextStyle(color: Colors.white),
+                ),
               ),
             ],
           ),
@@ -869,40 +838,79 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _deleteComment(Comments comment) async {
+    if (!_isCommentOwner(comment)) {
+      NotificationService.showError(
+        'Vous ne pouvez supprimer que vos propres commentaires',
+      );
+      return;
+    }
+
+    if (!mounted) return;
+
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder:
           (context) => AlertDialog(
-            title: const Text('Supprimer le commentaire'),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            backgroundColor: Colors.white,
+            title: Row(
+              children: [
+                const Icon(Icons.warning_amber, color: Colors.red, size: 24),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Supprimer le commentaire',
+                    style: const TextStyle(
+                      color: Color(0xFF007A33),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
             content: const Text(
-              'Êtes-vous sûr de vouloir supprimer ce commentaire?',
+              'Êtes-vous sûr de vouloir supprimer ce commentaire? Cette action est irréversible.',
+              style: TextStyle(color: Colors.grey, fontSize: 14),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('Annuler'),
+                child: const Text(
+                  'Annuler',
+                  style: TextStyle(color: Colors.grey),
+                ),
               ),
               ElevatedButton(
                 onPressed: () async {
                   try {
                     final commentDb = CommentDatabase();
                     await commentDb.deleteComment(comment.id!);
-                    _loadUserComments();
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Commentaire supprimé avec succès!'),
-                      ),
-                    );
+                    if (mounted) {
+                      _loadUserComments();
+                      Navigator.pop(context);
+                      NotificationService.showSuccess(
+                        'Commentaire supprimé avec succès!',
+                      );
+                    }
                   } catch (e) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Erreur lors de la suppression: $e'),
-                      ),
+                    NotificationService.showError(
+                      'Erreur lors de la suppression: ${e.toString()}',
                     );
                   }
                 },
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
                 child: const Text(
                   'Supprimer',
                   style: TextStyle(color: Colors.white),
@@ -914,16 +922,43 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _logout() async {
+    if (!mounted) return;
+
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder:
           (context) => AlertDialog(
-            title: const Text('Se déconnecter'),
-            content: const Text('Êtes-vous sûr de vouloir vous déconnecter?'),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            backgroundColor: Colors.white,
+            title: Row(
+              children: [
+                const Icon(Icons.logout, color: Color(0xFF007A33), size: 24),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Se déconnecter',
+                    style: const TextStyle(
+                      color: Color(0xFF007A33),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            content: const Text(
+              'Êtes-vous sûr de vouloir vous déconnecter?',
+              style: TextStyle(color: Colors.grey, fontSize: 14),
+            ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('Annuler'),
+                child: const Text(
+                  'Annuler',
+                  style: TextStyle(color: Colors.grey),
+                ),
               ),
               ElevatedButton(
                 onPressed: () async {
@@ -932,24 +967,37 @@ class _ProfilePageState extends State<ProfilePage> {
                       context,
                       listen: false,
                     );
+                    debugPrint('🔓 Logging out from server...');
+                    await authService.logoutFromServer();
+                    debugPrint('🔓 Clearing local auth state...');
                     authService.logout();
                     if (mounted) {
-                      Navigator.of(context).pushAndRemoveUntil(
-                        MaterialPageRoute(builder: (_) => const LoginPage()),
-                        (route) => false,
+                      debugPrint('🔓 Navigating back to Firstpage...');
+                      // Use popUntil to go back to the main home page instead of creating a new LoginPage
+                      Navigator.of(context).popUntil((route) => route.isFirst);
+                      NotificationService.showSuccess(
+                        'Déconnecté avec succès!',
                       );
                     }
                   } catch (e) {
                     if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Erreur lors de la déconnexion: $e'),
-                        ),
+                      debugPrint('❌ Logout error: $e');
+                      NotificationService.showError(
+                        'Erreur lors de la déconnexion: ${e.toString()}',
                       );
                     }
                   }
                 },
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
                 child: const Text(
                   'Se déconnecter',
                   style: TextStyle(color: Colors.white),
@@ -957,59 +1005,6 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
             ],
           ),
-    );
-  }
-}
-
-class _UserFavoritesChips extends StatelessWidget {
-  final String userId;
-  const _UserFavoritesChips({required this.userId});
-
-  @override
-  Widget build(BuildContext context) {
-    if (userId.isEmpty) {
-      return const Text(
-        'Aucun favori pour le moment',
-        style: TextStyle(color: Color.fromARGB(255, 92, 78, 78)),
-      );
-    }
-    final db = FavoritesDatabase(supabase: Supabase.instance.client);
-    return FutureBuilder<List<Favoris>>(
-      future: db.getUserFavorites(userId),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8.0),
-            child: LinearProgressIndicator(minHeight: 2),
-          );
-        }
-        if (snapshot.hasError) {
-          return const Text(
-            'Erreur de chargement des favoris',
-            style: TextStyle(color: Colors.grey),
-          );
-        }
-        final favoris = snapshot.data ?? [];
-        if (favoris.isEmpty) {
-          return const Text(
-            'Aucun favori pour le moment',
-            style: TextStyle(color: Colors.grey),
-          );
-        }
-        return Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children:
-              favoris
-                  .map(
-                    (f) => Chip(
-                      label: Text('Recette #${f.recetteId}'),
-                      backgroundColor: Colors.green[100],
-                    ),
-                  )
-                  .toList(),
-        );
-      },
     );
   }
 }

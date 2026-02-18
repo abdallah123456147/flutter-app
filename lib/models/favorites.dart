@@ -1,7 +1,5 @@
-import 'package:uuid/uuid.dart';
-
 class Favoris {
-  final String id;
+  final int id;
   final String userId;
   final int recetteId;
   final DateTime createdAt;
@@ -16,8 +14,8 @@ class Favoris {
   // Factory constructor to create object from Supabase record
   factory Favoris.fromJson(Map<String, dynamic> json) {
     return Favoris(
-      id: json['id'] as String,
-      userId: json['user_id'] as String,
+      id: _asInt(json['id']) ?? 0,
+      userId: json['user_id']?.toString() ?? '',
       recetteId:
           (json['recette_id'] is int)
               ? json['recette_id'] as int
@@ -36,13 +34,9 @@ class Favoris {
     };
   }
 
-  // Helper: create a new Favoris with generated UUID
-  static Favoris createNew(String userId, int recetteId) {
-    return Favoris(
-      id: const Uuid().v4(),
-      userId: userId,
-      recetteId: recetteId,
-      createdAt: DateTime.now(),
-    );
+  static int? _asInt(dynamic value) {
+    if (value is int) return value;
+    if (value is String) return int.tryParse(value);
+    return null;
   }
 }

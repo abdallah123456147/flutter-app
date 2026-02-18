@@ -1,98 +1,71 @@
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
 import 'package:bennasafi/models/ingredients.dart';
 import 'package:bennasafi/models/recettes.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:http/http.dart' as http;
+import 'package:bennasafi/services/api_config.dart';
 
 class RecetteRepository {
-  final SupabaseClient supabase;
+  RecetteRepository();
 
-  RecetteRepository(this.supabase);
+  static final http.Client _client = http.Client();
 
-  // Add ingredients to a recipe (using bulk insert)
-  Future<void> addIngredientsToRecette({
-    required String recetteId,
-    required List<int> ingredientIds,
-    List<String>? quantities,
-    List<String>? unite,
-  }) async {
-    // Prepare all insert operations as a list of maps
-    final inserts = List<Map<String, dynamic>>.generate(ingredientIds.length, (
-      i,
-    ) {
-      return {
-        'recette_id': recetteId,
-        'ingredient_id': ingredientIds[i],
-        'quantity':
-            quantities != null && i < quantities.length ? quantities[i] : null,
-        'unit': unite != null && i < unite.length ? unite[i] : null,
-      };
-    });
+  Future<List<Ingredients>> getIngredientsForRecette(int recetteId) async {
+    try {
+      final uri = Uri.parse('${ApiConfig.baseUrl}/api/recettes/$recetteId');
+      final response = await _client.get(uri);
+      if (response.statusCode != 200) {
+        throw Exception('Failed to load recipe');
+      }
 
-    // Execute as a single bulk insert
-    await supabase.from('recette_ingredients').insert(inserts);
-  }
+      final data = jsonDecode(response.body);
+      final map = _extractItem(data);
+      if (map == null) return [];
 
-  // Get all ingredients for a recipe (corrected query)
-  Future<List<Ingredients>> getIngredientsForRecette(String recetteId) async {
-    final response = await supabase
-        .from('recette_ingredients')
-        .select('''
-          ingredient:ingredient_id (
-            id,
-            nameIngredient,
-            quantity,
-            unite,
-            imageIngredient,
-            created_at
-          )
-        ''')
-        .eq('recette_id', recetteId);
-
-    final data = response as List<dynamic>;
-    return data.map((item) => Ingredients.fromMap(item['ingredient'])).toList();
+      final recette = Recettes.fromMap(map);
+      return recette.ingredients ?? [];
+    } catch (e) {
+      debugPrint('Error fetching ingredients for recette: $e');
+      return [];
+    }
   }
 
   // Get all recipes that use a specific ingredient (corrected query)
   Future<List<Recettes>> getRecettesForIngredient(int ingredientId) async {
-    final response = await supabase
-        .from('recette_ingredients')
-        .select('''
-          recette:recette_id (
-            id,
-            name,
-            description,
-            type,
-            soustype,
-            preparation,
-            cuisson,
-            nbre,
-            image
-          )
-        ''')
-        .eq('ingredient_id', ingredientId);
+    try {
+      final uri = Uri.parse(
+        '${ApiConfig.baseUrl}/api/ingredients/$ingredientId/recettes',
+      );
+      final response = await _client.get(uri);
+      if (response.statusCode != 200) {
+        throw Exception('Failed to load recipes by ingredient');
+      }
 
-    final data = response as List<dynamic>;
-    return data.map((item) => Recettes.fromMap(item['recette'])).toList();
+      final data = jsonDecode(response.body);
+      final list = _extractList(data);
+      return list
+          .map((item) => Recettes.fromMap(Map<String, dynamic>.from(item)))
+          .toList();
+    } catch (e) {
+      debugPrint('Error fetching recipes for ingredient: $e');
+      return [];
+    }
   }
 
-  // Additional useful methods
-  Future<void> removeIngredientFromRecette({
-    required String recetteId,
-    required int ingredientId,
-  }) async {
-    await supabase.from('recette_ingredients').delete().match({
-      'recette_id': recetteId,
-      'ingredient_id': ingredientId,
-    });
+  static List<dynamic> _extractList(dynamic data) {
+    if (data is Map && data['data'] is List) {
+      return data['data'] as List<dynamic>;
+    }
+    if (data is List) return data;
+    return [];
   }
 
-  Future<void> updateIngredientQuantity({
-    required String recetteId,
-    required int ingredientId,
-    required String newQuantity,
-  }) async {
-    await supabase
-        .from('recette_ingredients')
-        .update({'quantity': newQuantity})
-        .match({'recette_id': recetteId, 'ingredient_id': ingredientId});
+  static Map<String, dynamic>? _extractItem(dynamic data) {
+    if (data is Map && data['data'] is Map) {
+      return Map<String, dynamic>.from(data['data'] as Map);
+    }
+    if (data is Map<String, dynamic>) return data;
+    return null;
   }
 }

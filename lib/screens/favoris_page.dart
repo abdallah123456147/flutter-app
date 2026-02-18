@@ -5,7 +5,7 @@ import 'package:bennasafi/services/recettes_database.dart';
 import 'package:bennasafi/models/recettes.dart';
 import 'package:bennasafi/screens/recette_details.dart'; // Import your details page
 import 'package:bennasafi/services/favorites_database.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:bennasafi/services/notification_service.dart';
 
 class FavorisPage extends StatefulWidget {
   const FavorisPage({super.key});
@@ -26,14 +26,13 @@ class _FavorisPageState extends State<FavorisPage> {
   void initState() {
     super.initState();
     _recetteDb = RecetteDatabase();
-    _favoritesDb = FavoritesDatabase(supabase: Supabase.instance.client);
+    _favoritesDb = FavoritesDatabase();
     _loadFavorites();
   }
 
   Future<void> _loadFavorites() async {
     final authService = Provider.of<AuthService>(context, listen: false);
-    final userId = authService.currentUser?.id;
-    if (userId == null) {
+    if (!authService.isLoggedIn) {
       setState(() {
         _favorisIds = [];
       });
@@ -44,7 +43,7 @@ class _FavorisPageState extends State<FavorisPage> {
       _error = null;
     });
     try {
-      final favs = await _favoritesDb.getUserFavorites(userId);
+      final favs = await _favoritesDb.getUserFavorites();
       _favorisIds = favs.map((f) => f.recetteId).toList();
       await _loadRecipes();
     } catch (e) {
@@ -105,25 +104,8 @@ class _FavorisPageState extends State<FavorisPage> {
       _favorisIds.remove(recipeId);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Retiré des favoris'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 2),
-            action: SnackBarAction(
-              label: 'Annuler',
-              textColor: Colors.white,
-              onPressed: () async {
-                // Undo the removal
-                setState(() {
-                  _recipes.add(removedRecipe);
-                  _favorisIds.add(recipeId);
-                });
-                await authService.addToFavorites(recipeId);
-              },
-            ),
-          ),
-        );
+        NotificationService.showError('Retiré des favoris');
+        // Show undo option through a different approach or just confirmation
       }
     } catch (e) {
       // If backend removal fails, revert UI
@@ -132,13 +114,7 @@ class _FavorisPageState extends State<FavorisPage> {
           _recipes.add(removedRecipe);
           _favorisIds.add(recipeId);
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Erreur lors de la suppression'),
-            backgroundColor: Colors.red,
-            duration: Duration(seconds: 2),
-          ),
-        );
+        NotificationService.showError('Erreur lors de la suppression');
       }
     }
   }
@@ -159,7 +135,7 @@ class _FavorisPageState extends State<FavorisPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Mes Favoris'),
-        backgroundColor: const Color(0xFF15B03B),
+        backgroundColor: const Color(0xFF007A33),
         foregroundColor: Colors.white,
       ),
       body: _buildBody(),
@@ -222,7 +198,9 @@ class _FavorisPageState extends State<FavorisPage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          CircularProgressIndicator(),
+          CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF007A33)),
+          ),
           SizedBox(height: 16),
           Text('Chargement de vos favoris...'),
         ],

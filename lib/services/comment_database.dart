@@ -1,104 +1,183 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/comments.dart';
+import '../services/api_config.dart';
 
 class CommentDatabase {
-  final supabase = Supabase.instance.client;
-
-  // 🟢 Add a comment
-  Future<void> addComment(Comments comment) async {
-    await supabase.from('comments').insert(comment.toMap());
-  }
+  static final http.Client _client = http.Client();
+  static const String _kTokenKey = 'auth_token';
 
   Future<void> insertComment(Comments comment) async {
-    final payload = comment.toMap();
-    payload.remove('id');
-    payload.remove('created_at');
-    payload.remove('updated_at');
+    if (comment.recetteId == null) {
+      throw Exception('recetteId is required');
+    }
 
-    await supabase.from('comments').insert(payload);
+    // Get auth token
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString(_kTokenKey);
+    if (token == null || token.isEmpty) {
+      throw Exception('Authentication token not found');
+    }
+
+    final uri = Uri.parse(
+      '${ApiConfig.baseUrl}/api/recettes/${comment.recetteId}/comments',
+    );
+
+    final payload = <String, dynamic>{
+      'comment': comment.comment,
+      'user_id': comment.userId,
+    };
+
+    final response = await _client.post(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode(payload),
+    );
+
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      final errorData = jsonDecode(response.body);
+      throw Exception(
+        errorData['message'] ?? 'Failed to add comment: ${response.statusCode}',
+      );
+    }
   }
 
-  // ✅ FIXED: Proper join syntax
   Future<List<Comments>> fetchCommentsByRecette(int recetteId) async {
     try {
-      final data = await supabase
-          .from('comments')
-          .select('''
-            *,
-            users!inner(*)
-          ''')
-          .eq('recette_id', recetteId)
-          .order('created_at', ascending: false);
+      final uri = Uri.parse(
+        '${ApiConfig.baseUrl}/api/recettes/$recetteId/comments',
+      );
+      final response = await _client.get(uri);
+      if (response.statusCode != 200) {
+        throw Exception('Failed to load comments');
+      }
 
-      return (data as List)
-          .map((item) => Comments.fromMapWithUser(item as Map<String, dynamic>))
-          .toList();
+      final data = jsonDecode(response.body);
+      final list = _extractList(data);
+
+      return list.map((item) {
+        final map = Map<String, dynamic>.from(item);
+        if (map['user'] is Map<String, dynamic>) {
+          return Comments.fromMapWithUser(map);
+        }
+        return Comments.fromMap(map);
+      }).toList();
     } catch (e) {
-      print('Error in fetchCommentsByRecette: $e');
-      // Fallback to simple query without join
+      debugPrint('Error in fetchCommentsByRecette: $e');
       return await getCommentsByRecetteId(recetteId);
     }
   }
 
-  // Alternative method with different join syntax
-  Future<List<Comments>> fetchCommentsByRecetteAlternative(
-    int recetteId,
-  ) async {
-    try {
-      final data = await supabase
-          .from('comments')
-          .select('*, users(id, name, email, photo)')
-          .eq('recette_id', recetteId)
-          .order('created_at', ascending: false);
-
-      return (data as List)
-          .map((item) => Comments.fromMapWithUser(item as Map<String, dynamic>))
-          .toList();
-    } catch (e) {
-      print('Error in fetchCommentsByRecetteAlternative: $e');
-      return await getCommentsByRecetteId(recetteId);
-    }
-  }
-
-  // 🟡 Get all comments for a recipe (without user join)
   Future<List<Comments>> getCommentsByRecetteId(int recetteId) async {
-    final response = await supabase
-        .from('comments')
-        .select()
-        .eq('recette_id', recetteId)
-        .order('created_at', ascending: false);
+    try {
+      final uri = Uri.parse(
+        '${ApiConfig.baseUrl}/api/comments',
+      ).replace(queryParameters: {'recette_id': recetteId.toString()});
 
-    return (response as List)
-        .map((data) => Comments.fromMap(Map<String, dynamic>.from(data)))
-        .toList();
+      final response = await _client.get(uri);
+      if (response.statusCode != 200) {
+        throw Exception('Failed to load comments');
+      }
+
+      final data = jsonDecode(response.body);
+      final list = _extractList(data);
+
+      return list
+          .map((item) => Comments.fromMap(Map<String, dynamic>.from(item)))
+          .toList();
+    } catch (e) {
+      debugPrint('Error in getCommentsByRecetteId: $e');
+      return [];
+    }
   }
 
-  // 🔵 Get all comments by a user
   Future<List<Comments>> getCommentsByUserId(String userId) async {
-    final response = await supabase
-        .from('comments')
-        .select()
-        .eq('user_id', userId)
-        .order('created_at', ascending: false);
+    try {
+      final uri = Uri.parse(
+        '${ApiConfig.baseUrl}/api/comments',
+      ).replace(queryParameters: {'user_id': userId});
 
-    return (response as List)
-        .map((data) => Comments.fromMap(Map<String, dynamic>.from(data)))
-        .toList();
+      final response = await _client.get(uri);
+      if (response.statusCode != 200) {
+        throw Exception('Failed to load comments');
+      }
+
+      final data = jsonDecode(response.body);
+      final list = _extractList(data);
+
+      return list
+          .map((item) => Comments.fromMap(Map<String, dynamic>.from(item)))
+          .toList();
+    } catch (e) {
+      debugPrint('Error in getCommentsByUserId: $e');
+      return [];
+    }
   }
 
-  // 🟣 Update a comment
-  Future<void> updateComment(String id, String newComment) async {
-    await supabase
-        .from('comments')
-        .update({
-          'comment': newComment,
-          'updated_at': DateTime.now().toIso8601String(),
-        })
-        .eq('id', id);
+  Future<void> updateComment(int id, String newComment) async {
+    // Get auth token
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString(_kTokenKey);
+    if (token == null || token.isEmpty) {
+      throw Exception('Authentication token not found');
+    }
+
+    final uri = Uri.parse('${ApiConfig.baseUrl}/api/comments/$id');
+    final response = await _client.patch(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode({'comment': newComment}),
+    );
+
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      final errorData = jsonDecode(response.body);
+      throw Exception(
+        errorData['message'] ??
+            'Failed to update comment: ${response.statusCode}',
+      );
+    }
   }
 
-  // 🔴 Delete a comment
-  Future<void> deleteComment(String id) async {
-    await supabase.from('comments').delete().eq('id', id);
+  Future<void> deleteComment(int id) async {
+    // Get auth token
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString(_kTokenKey);
+    if (token == null || token.isEmpty) {
+      throw Exception('Authentication token not found');
+    }
+
+    final uri = Uri.parse('${ApiConfig.baseUrl}/api/comments/$id');
+    final response = await _client.delete(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    );
+
+    if (response.statusCode != 200 && response.statusCode != 204) {
+      final errorData = jsonDecode(response.body);
+      throw Exception(
+        errorData['message'] ??
+            'Failed to delete comment: ${response.statusCode}',
+      );
+    }
+  }
+
+  static List<dynamic> _extractList(dynamic data) {
+    if (data is Map && data['data'] is List) {
+      return data['data'] as List<dynamic>;
+    }
+    if (data is List) return data;
+    return [];
   }
 }

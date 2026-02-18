@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../models/user.dart';
 import '../services/auth_service.dart';
 import 'login_page.dart';
+import 'package:bennasafi/services/notification_service.dart';
 
 class InscriptionPage extends StatefulWidget {
   const InscriptionPage({super.key});
@@ -71,9 +72,7 @@ class _InscriptionPageState extends State<InscriptionPage> {
       Navigator.of(context).popUntil((route) => route.isFirst);
     } else {
       final err = authService.lastError ?? 'Inscription échouée';
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(err), backgroundColor: Colors.red));
+      NotificationService.showError(err);
     }
   }
 

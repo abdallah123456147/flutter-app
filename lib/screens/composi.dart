@@ -1,11 +1,11 @@
 import 'package:bennasafi/screens/firstpage.dart';
+import 'package:bennasafi/screens/recetteByType.dart';
 import 'package:bennasafi/screens/search_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:bennasafi/services/ingredients_database.dart';
 import 'package:bennasafi/models/ingredients.dart';
 import 'package:bennasafi/models/recettes.dart';
 import 'package:bennasafi/services/recette_ingredient_database.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:bennasafi/screens/recette_details.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:bennasafi/services/auth_service.dart';
@@ -23,9 +23,7 @@ class Composi extends StatefulWidget {
 
 class _ComposiState extends State<Composi> {
   final IngredientDatabase _ingredientDatabase = IngredientDatabase();
-  final RecetteRepository _recetteRepository = RecetteRepository(
-    Supabase.instance.client,
-  );
+  final RecetteRepository _recetteRepository = RecetteRepository();
 
   List<Ingredients> _ingredients = [];
   Map<int, bool> _selectedIngredients = {};
@@ -213,7 +211,11 @@ class _ComposiState extends State<Composi> {
     }
 
     if (_ingredients.isEmpty) {
-      return [const CircularProgressIndicator()];
+      return [
+        const CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF007A33)),
+        ),
+      ];
     }
 
     final Map<String, List<Ingredients>> ingredientsByType = {};
@@ -499,51 +501,166 @@ class _ComposiState extends State<Composi> {
   void _showUserMenu() {
     showModalBottomSheet(
       context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(25),
+          topRight: Radius.circular(25),
+        ),
+      ),
       builder:
-          (context) => Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.person),
-                title: const Text('Mon Profil'),
-                onTap: () {
-                  Navigator.pop(context);
-                  final authService = Provider.of<AuthService>(
-                    context,
-                    listen: false,
-                  );
-                  if (authService.currentUser != null) {
+          (context) => Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(25),
+                topRight: Radius.circular(25),
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16.0),
+                  child: Container(
+                    height: 4,
+                    width: 50,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16.0),
+                  child: Text(
+                    'Mon Compte',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF007A33),
+                      fontFamily: 'Cocon',
+                    ),
+                  ),
+                ),
+                const Divider(height: 1),
+                // Menu Items
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF007A33).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.person,
+                      color: Color(0xFF007A33),
+                      size: 24,
+                    ),
+                  ),
+                  title: const Text(
+                    'Mon Profil',
+                    style: TextStyle(
+                      fontFamily: 'Cocon',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  trailing: const Icon(
+                    Icons.arrow_forward_ios,
+                    size: 16,
+                    color: Color(0xFF007A33),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    final authService = Provider.of<AuthService>(
+                      context,
+                      listen: false,
+                    );
+                    if (authService.currentUser != null) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder:
+                              (context) =>
+                                  ProfilePage(user: authService.currentUser!),
+                        ),
+                      );
+                    }
+                  },
+                ),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF007A33).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.favorite,
+                      color: Color(0xFF007A33),
+                      size: 24,
+                    ),
+                  ),
+                  title: const Text(
+                    'Mes Favoris',
+                    style: TextStyle(
+                      fontFamily: 'Cocon',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  trailing: const Icon(
+                    Icons.arrow_forward_ios,
+                    size: 16,
+                    color: Color(0xFF007A33),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
                     Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder:
-                            (context) =>
-                                ProfilePage(user: authService.currentUser!),
-                      ),
+                      MaterialPageRoute(builder: (_) => FavorisPage()),
                     );
-                  }
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.favorite),
-                title: const Text('Mes Favoris'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => FavorisPage()),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.logout),
-                title: const Text('Déconnexion'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Provider.of<AuthService>(context, listen: false).logout();
-                },
-              ),
-            ],
+                  },
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.logout,
+                      color: Colors.red,
+                      size: 24,
+                    ),
+                  ),
+                  title: const Text(
+                    'Déconnexion',
+                    style: TextStyle(
+                      fontFamily: 'Cocon',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.red,
+                    ),
+                  ),
+                  trailing: const Icon(
+                    Icons.arrow_forward_ios,
+                    size: 16,
+                    color: Colors.red,
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Provider.of<AuthService>(context, listen: false).logout();
+                  },
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
           ),
     );
   }
@@ -595,64 +712,41 @@ class _ComposiState extends State<Composi> {
   Widget build(BuildContext context) {
     return Scaffold(
       drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
+        elevation: 15,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.only(
+            topRight: Radius.circular(30),
+            bottomRight: Radius.circular(30),
+          ),
+        ),
+        child: Column(
           children: [
-            DrawerHeader(
-              decoration: BoxDecoration(
-                color: Color(0xFFFFB400),
-              ), // header background
-              child: Text(
-                'Menu',
-                style: TextStyle(
-                  color: Colors.white, // white text for contrast
-                  fontFamily: 'Cocon',
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            ListTile(
-              leading: Icon(
-                Icons.home,
-                color: Color(0xFFFFB400), // yellow-gold icon
-              ),
-              title: Text(
-                'Accueil',
-                style: TextStyle(
-                  fontFamily: 'Cocon',
-                  color: Color(0xFF007A33), // dark text for readability
-                ),
-              ),
-              onTap:
-                  () => Navigator.push(
+            const SizedBox(height: 50),
+            // Menu Items
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                children: [
+                  _buildAnimatedTile(
                     context,
-                    MaterialPageRoute(builder: (_) => Firstpage()),
+                    icon: Icons.home,
+                    title: "Accueil",
+                    page: Firstpage(),
                   ),
-            ),
-            // ListTile(
-            //   leading: Icon(Icons.restaurant_menu, color: Color(0xFFFFB400)),
-            //   title: Text(
-            //     'Recette du jour',
-            //     style: TextStyle(fontFamily: 'Cocon', color: Color(0xFF007A33)),
-            //   ),
-            //   onTap:
-            //       () => Navigator.push(
-            //         context,
-            //         MaterialPageRoute(builder: (_) => Firstpage()),
-            //       ),
-            // ),
-            ListTile(
-              leading: Icon(Icons.kitchen, color: Color(0xFFFFB400)),
-              title: Text(
-                'Composi Dbartek',
-                style: TextStyle(fontFamily: 'Cocon', color: Color(0xFF007A33)),
-              ),
-              onTap:
-                  () => Navigator.push(
+                  _buildAnimatedTile(
                     context,
-                    MaterialPageRoute(builder: (_) => const Composi()),
+                    icon: Icons.menu_book,
+                    title: "Toutes les recettes",
+                    page: RecetteByType(),
                   ),
+                  _buildAnimatedTile(
+                    context,
+                    icon: Icons.kitchen,
+                    title: "Composi Dbartek",
+                    page: const Composi(),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -807,7 +901,10 @@ class _ComposiState extends State<Composi> {
             MaterialPageRoute(builder: (_) => FavorisPage()),
           );
         } else {
-          _showLoginDialog();
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => LoginPage()),
+          );
         }
       },
       child: Column(
@@ -828,32 +925,70 @@ class _ComposiState extends State<Composi> {
     );
   }
 
-  void _showLoginDialog() {
-    showDialog(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Connexion requise'),
-            content: const Text(
-              'Veuillez vous connecter pour effectuer cette action.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Annuler'),
-              ),
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => LoginPage()),
-                  );
-                },
-                child: const Text('Se connecter'),
-              ),
-            ],
+  Widget _buildAnimatedTile(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required Widget page,
+  }) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 500),
+      curve: Curves.easeOut,
+      builder: (context, value, child) {
+        return Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(-30 * (1 - value), 0),
+            child: child,
           ),
+        );
+      },
+      child: ListTile(
+        leading: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: const Color(0xFF007A33).withOpacity(0.15),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: const Color(0xFF007A33), size: 22),
+        ),
+        title: Text(
+          title,
+          style: const TextStyle(
+            fontFamily: 'Cocon',
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF007A33),
+          ),
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        tileColor: Colors.transparent,
+        hoverColor: const Color(0xFF007A33).withOpacity(0.08),
+        splashColor: const Color(0xFF007A33).withOpacity(0.12),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        onTap: () {
+          Navigator.pop(context);
+          Navigator.push(
+            context,
+            PageRouteBuilder(
+              transitionDuration: const Duration(milliseconds: 450),
+              pageBuilder: (_, __, ___) => page,
+              transitionsBuilder: (_, animation, __, child) {
+                return SlideTransition(
+                  position: Tween(
+                    begin: const Offset(1, 0),
+                    end: Offset.zero,
+                  ).animate(
+                    CurvedAnimation(parent: animation, curve: Curves.easeOut),
+                  ),
+                  child: FadeTransition(opacity: animation, child: child),
+                );
+              },
+            ),
+          );
+        },
+      ),
     );
   }
 

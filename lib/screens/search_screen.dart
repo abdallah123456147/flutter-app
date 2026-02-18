@@ -136,7 +136,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 style: const TextStyle(fontFamily: 'Cocon', fontSize: 16),
                 onChanged: (value) {
                   setState(() {});
-                  if (value.length >= 2) {
+                  if (value.length >= 1) {
                     _performSearch(value);
                   } else if (value.isEmpty) {
                     setState(() {

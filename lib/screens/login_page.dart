@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
 import 'inscription_page.dart';
+import 'package:bennasafi/services/notification_service.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -31,25 +32,51 @@ class _LoginPageState extends State<LoginPage> {
       _isLoading = true;
     });
 
-    final authService = Provider.of<AuthService>(context, listen: false);
-    final success = await authService.login(
-      _emailController.text.trim(),
-      _passwordController.text.trim(),
-    );
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      debugPrint('🔐 Starting login...');
 
-    setState(() {
-      _isLoading = false;
-    });
-
-    if (success) {
-      Navigator.of(context).popUntil((route) => route.isFirst);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Email ou mot de passe incorrect'),
-          backgroundColor: Colors.red,
-        ),
+      final success = await authService.login(
+        _emailController.text.trim(),
+        _passwordController.text.trim(),
       );
+
+      debugPrint('🔐 Login result: $success');
+
+      if (!mounted) {
+        debugPrint('⚠️ Widget not mounted after login');
+        return;
+      }
+
+      setState(() {
+        _isLoading = false;
+      });
+
+      if (success) {
+        debugPrint(
+          '✅ Login successful, showing notification and navigating...',
+        );
+        // Show success notification
+        NotificationService.showSuccess('Connecté avec succès!');
+
+        // Close the LoginPage immediately and return to Firstpage
+        if (mounted) {
+          debugPrint('📲 Popping login page from stack...');
+          Navigator.pop(context);
+          debugPrint('✅ Navigation complete');
+        }
+      } else {
+        debugPrint('❌ Login failed');
+        NotificationService.showError('Email ou mot de passe incorrect');
+      }
+    } catch (e) {
+      debugPrint('❌ Login exception: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+        NotificationService.showError('Erreur de connexion: ${e.toString()}');
+      }
     }
   }
 

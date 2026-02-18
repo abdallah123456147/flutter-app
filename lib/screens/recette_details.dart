@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:bennasafi/screens/firstpage.dart';
+import 'package:bennasafi/screens/recetteByType.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:photo_view/photo_view.dart';
@@ -18,11 +19,11 @@ import 'package:bennasafi/services/comment_database.dart';
 import 'package:intl/intl.dart';
 import 'package:bennasafi/services/rating_database.dart';
 import 'package:bennasafi/screens/profil.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:bennasafi/models/recette_photo.dart';
 import 'package:bennasafi/services/recettephoto_database.dart';
 import 'package:bennasafi/screens/composi.dart';
 import 'package:bennasafi/screens/search_screen.dart';
+import 'package:bennasafi/services/notification_service.dart';
 
 class RecetteDetailsPage extends StatefulWidget {
   final Recettes recette;
@@ -63,45 +64,41 @@ class _RecetteDetailsPageState extends State<RecetteDetailsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
+        elevation: 15,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.only(
+            topRight: Radius.circular(30),
+            bottomRight: Radius.circular(30),
+          ),
+        ),
+        child: Column(
           children: [
-            DrawerHeader(
-              decoration: BoxDecoration(color: Color(0xFFFFB400)),
-              child: Text(
-                'Menu',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontFamily: 'Cocon',
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            ListTile(
-              leading: Icon(Icons.home, color: Color(0xFFFFB400)),
-              title: Text(
-                'Accueil',
-                style: TextStyle(fontFamily: 'Cocon', color: Color(0xFF007A33)),
-              ),
-              onTap:
-                  () => Navigator.push(
+            const SizedBox(height: 50),
+            // Menu Items
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                children: [
+                  _buildAnimatedTile(
                     context,
-                    MaterialPageRoute(builder: (_) => Firstpage()),
+                    icon: Icons.home,
+                    title: "Accueil",
+                    page: Firstpage(),
                   ),
-            ),
-
-            ListTile(
-              leading: Icon(Icons.kitchen, color: Color(0xFFFFB400)),
-              title: Text(
-                'Composi Dbartek',
-                style: TextStyle(fontFamily: 'Cocon', color: Color(0xFF007A33)),
-              ),
-              onTap:
-                  () => Navigator.push(
+                  _buildAnimatedTile(
                     context,
-                    MaterialPageRoute(builder: (_) => const Composi()),
+                    icon: Icons.menu_book,
+                    title: "Toutes les recettes",
+                    page: RecetteByType(),
                   ),
+                  _buildAnimatedTile(
+                    context,
+                    icon: Icons.kitchen,
+                    title: "Composi Dbartek",
+                    page: const Composi(),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -153,10 +150,17 @@ class _RecetteDetailsPageState extends State<RecetteDetailsPage> {
 
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16.0,
+                vertical: 12.0,
+              ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [_buildCountRating(), _buildCountComment()],
+                children: [
+                  _buildCountRating(),
+                  const SizedBox(width: 24),
+                  _buildCountComment(),
+                ],
               ),
             ),
           ),
@@ -197,12 +201,83 @@ class _RecetteDetailsPageState extends State<RecetteDetailsPage> {
     return await _photoService.fetchPhotos(_recette.id);
   }
 
+  Widget _buildAnimatedTile(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required Widget page,
+  }) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 500),
+      curve: Curves.easeOut,
+      builder: (context, value, child) {
+        return Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(-30 * (1 - value), 0),
+            child: child,
+          ),
+        );
+      },
+      child: ListTile(
+        leading: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: const Color(0xFF007A33).withOpacity(0.15),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: const Color(0xFF007A33), size: 22),
+        ),
+        title: Text(
+          title,
+          style: const TextStyle(
+            fontFamily: 'Cocon',
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF007A33),
+          ),
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        tileColor: Colors.transparent,
+        hoverColor: const Color(0xFF007A33).withOpacity(0.08),
+        splashColor: const Color(0xFF007A33).withOpacity(0.12),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        onTap: () {
+          Navigator.pop(context);
+          Navigator.push(
+            context,
+            PageRouteBuilder(
+              transitionDuration: const Duration(milliseconds: 450),
+              pageBuilder: (_, __, ___) => page,
+              transitionsBuilder: (_, animation, __, child) {
+                return SlideTransition(
+                  position: Tween(
+                    begin: const Offset(1, 0),
+                    end: Offset.zero,
+                  ).animate(
+                    CurvedAnimation(parent: animation, curve: Curves.easeOut),
+                  ),
+                  child: FadeTransition(opacity: animation, child: child),
+                );
+              },
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildRecettePhotosSlideshow() {
     return FutureBuilder<List<RecettePhoto>>(
       future: _fetchRecettePhotos(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const Center(
+            child: CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF007A33)),
+            ),
+          );
         }
 
         if (!snapshot.hasData || snapshot.data!.isEmpty) {
@@ -251,7 +326,12 @@ class _RecetteDetailsPageState extends State<RecetteDetailsPage> {
                       borderRadius: BorderRadius.circular(15.0),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.grey.withOpacity(0.5),
+                          color: const Color.fromARGB(
+                            255,
+                            255,
+                            255,
+                            255,
+                          ).withOpacity(0.5),
                           spreadRadius: 2,
                           blurRadius: 5,
                           offset: const Offset(0, 3),
@@ -268,6 +348,9 @@ class _RecetteDetailsPageState extends State<RecetteDetailsPage> {
                           if (loadingProgress == null) return child;
                           return Center(
                             child: CircularProgressIndicator(
+                              valueColor: const AlwaysStoppedAnimation<Color>(
+                                Color(0xFF007A33),
+                              ),
                               value:
                                   loadingProgress.expectedTotalBytes != null
                                       ? loadingProgress.cumulativeBytesLoaded /
@@ -278,10 +361,10 @@ class _RecetteDetailsPageState extends State<RecetteDetailsPage> {
                         },
                         errorBuilder: (context, error, stackTrace) {
                           return Container(
-                            color: Colors.grey[300],
+                            color: const Color.fromARGB(255, 255, 255, 255),
                             child: const Icon(
                               Icons.error_outline,
-                              color: Colors.grey,
+                              color: Color.fromARGB(255, 255, 255, 255),
                               size: 50,
                             ),
                           );
@@ -342,7 +425,11 @@ class _RecetteDetailsPageState extends State<RecetteDetailsPage> {
 
   Widget _buildCommentSection() {
     if (_isLoadingComments) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF007A33)),
+        ),
+      );
     }
 
     if (_comments.isEmpty) {
@@ -371,16 +458,13 @@ class _RecetteDetailsPageState extends State<RecetteDetailsPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: _buildUserRatingBadge(comment.userId),
-                    ),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // Avatar
                         SizedBox(
-                          width: MediaQuery.of(context).size.width * 0.20,
-                          height: MediaQuery.of(context).size.width * 0.20,
+                          width: MediaQuery.of(context).size.width * 0.15,
+                          height: MediaQuery.of(context).size.width * 0.15,
                           child: ClipOval(
                             child:
                                 (comment.user?.photo != null &&
@@ -401,24 +485,45 @@ class _RecetteDetailsPageState extends State<RecetteDetailsPage> {
                           ),
                         ),
                         const SizedBox(width: 12),
+                        // User info and rating
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              // Name and Rating on same line
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    comment.user?.name ?? 'inconnu',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                      color: Color(0xFF007A33),
+                                    ),
+                                  ),
+                                  _buildUserRatingBadge(comment.userId),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              // Comment text
                               Text(
-                                comment.user?.name ?? 'inconnu',
+                                comment.comment ?? '',
                                 style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 18,
-                                  color: Color(0xFF007A33),
+                                  fontSize: 13,
+                                  height: 1.5,
+                                  color: Colors.black87,
                                 ),
                               ),
-                              const SizedBox(height: 4),
+                              const SizedBox(height: 8),
+                              // Date/Time
                               Row(
                                 children: [
                                   Icon(
                                     Icons.access_time,
-                                    size: 14,
+                                    size: 12,
                                     color: Colors.grey[600],
                                   ),
                                   const SizedBox(width: 4),
@@ -440,14 +545,9 @@ class _RecetteDetailsPageState extends State<RecetteDetailsPage> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      comment.comment ?? '',
-                      style: const TextStyle(fontSize: 14),
-                    ),
                     if (index < _comments.length - 1)
                       Container(
-                        margin: const EdgeInsets.only(top: 12.0),
+                        margin: const EdgeInsets.only(top: 16.0),
                         height: 1,
                         color: Colors.grey[300],
                       ),
@@ -646,29 +746,157 @@ class _RecetteDetailsPageState extends State<RecetteDetailsPage> {
         showDialog(
           context: context,
           builder:
-              (context) => AlertDialog(
-                title: const Text('Ajouter un commentaire'),
-                content: TextField(
-                  controller: _commentTextController,
-                  maxLines: 4,
-                  decoration: const InputDecoration(
-                    hintText: 'Écrivez votre commentaire ici...',
-                    border: OutlineInputBorder(),
+              (context) => Dialog(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(20),
+                    color: Colors.white,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Header with close button
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Partager votre avis',
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF007A33),
+                              fontFamily: 'Cocon',
+                            ),
+                          ),
+                          GestureDetector(
+                            onTap: () => Navigator.pop(context),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.grey[100],
+                                shape: BoxShape.circle,
+                              ),
+                              padding: const EdgeInsets.all(8),
+                              child: const Icon(
+                                Icons.close,
+                                size: 24,
+                                color: Color(0xFF007A33),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      // Subtitle
+                      const Text(
+                        'Aidez-nous à améliorer cette recette',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey,
+                          fontFamily: 'Cocon',
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      // Text field
+                      TextField(
+                        controller: _commentTextController,
+                        maxLines: 5,
+                        maxLength: 500,
+                        textInputAction: TextInputAction.newline,
+                        decoration: InputDecoration(
+                          hintText: 'Votre commentaire...',
+                          hintStyle: const TextStyle(color: Colors.grey),
+                          filled: true,
+                          fillColor: Colors.grey[50],
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: Colors.grey[300]!),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: Colors.grey[300]!),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: Color(0xFF15B03B),
+                              width: 2,
+                            ),
+                          ),
+                          contentPadding: const EdgeInsets.all(16),
+                        ),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontFamily: 'Cocon',
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      // Buttons
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.pop(context),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(
+                                  color: Colors.grey,
+                                  width: 1,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                ),
+                              ),
+                              child: const Text(
+                                'Annuler',
+                                style: TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Cocon',
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () async {
+                                Navigator.pop(context);
+                                await _submitComment();
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF15B03B),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                ),
+                                elevation: 2,
+                              ),
+                              child: const Text(
+                                'Envoyer',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Cocon',
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Annuler'),
-                  ),
-                  TextButton(
-                    onPressed: () async {
-                      Navigator.pop(context);
-                      await _submitComment();
-                    },
-                    child: const Text('Envoyer'),
-                  ),
-                ],
               ),
         );
       },
@@ -766,7 +994,10 @@ class _RecetteDetailsPageState extends State<RecetteDetailsPage> {
             MaterialPageRoute(builder: (_) => FavorisPage()),
           );
         } else {
-          _showLoginDialog();
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => LoginPage()),
+          );
         }
       },
       child: Column(
@@ -829,10 +1060,8 @@ class _RecetteDetailsPageState extends State<RecetteDetailsPage> {
       print('Error fetching comments: $e');
       if (mounted) {
         setState(() => _isLoadingComments = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erreur lors du chargement des commentaires: $e'),
-          ),
+        NotificationService.showError(
+          'Erreur lors du chargement des commentaires: $e',
         );
       }
     }
@@ -844,10 +1073,9 @@ class _RecetteDetailsPageState extends State<RecetteDetailsPage> {
       if (!authService.isLoggedIn) return;
       final user = authService.currentUser;
       if (user == null) return;
-      final value = await _ratingDb.getUserRating(
-        user.id.toString(),
-        _recette.id,
-      );
+      final userId = int.tryParse(user.id ?? '');
+      if (userId == null) return;
+      final value = await _ratingDb.getUserRating(userId, _recette.id);
       if (!mounted) return;
       setState(() {
         _myRating = value ?? 0;
@@ -859,23 +1087,26 @@ class _RecetteDetailsPageState extends State<RecetteDetailsPage> {
 
   Future<void> _submitRating(int value) async {
     final authService = Provider.of<AuthService>(context, listen: false);
-    if (!authService.isLoggedIn) return _showLoginDialog();
+    if (!authService.isLoggedIn) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => LoginPage()));
+      return;
+    }
     final user = authService.currentUser;
     if (user == null) return;
     try {
-      await _ratingDb.upsertRating(user.id.toString(), _recette.id, value);
+      final userId = int.tryParse(user.id ?? '');
+      if (userId == null) {
+        throw Exception('Invalid user ID');
+      }
+      await _ratingDb.upsertRating(userId, _recette.id, value);
       if (!mounted) return;
       setState(() {
         _myRating = value;
       });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Merci pour votre note!')));
+      NotificationService.showSuccess('Merci pour votre note!');
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur lors de l\'enregistrement de la note: $e'),
-        ),
+      NotificationService.showError(
+        'Erreur lors de l\'enregistrement de la note: $e',
       );
     }
   }
@@ -913,8 +1144,8 @@ class _RecetteDetailsPageState extends State<RecetteDetailsPage> {
     );
   }
 
-  Widget _buildUserRatingBadge(String? userId) {
-    if (userId == null || userId.isEmpty) {
+  Widget _buildUserRatingBadge(int? userId) {
+    if (userId == null || userId <= 0) {
       return const SizedBox.shrink();
     }
     return FutureBuilder<int?>(
@@ -943,7 +1174,10 @@ class _RecetteDetailsPageState extends State<RecetteDetailsPage> {
 
   Future<void> _pickImage() async {
     final authService = Provider.of<AuthService>(context, listen: false);
-    if (!authService.isLoggedIn) return _showLoginDialog();
+    if (!authService.isLoggedIn) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => LoginPage()));
+      return;
+    }
 
     try {
       final XFile? image = await _imagePicker.pickImage(
@@ -951,55 +1185,44 @@ class _RecetteDetailsPageState extends State<RecetteDetailsPage> {
         imageQuality: 80,
       );
       if (image != null) {
-        final supabase = Supabase.instance.client;
-
-        final fileName =
-            '${authService.currentUser!.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-        final filePath = 'recette_photos/recette_${_recette.id}/$fileName';
-
-        await supabase.storage
-            .from('images')
-            .upload(filePath, File(image.path));
-
-        final imageUrl = supabase.storage.from('images').getPublicUrl(filePath);
-
-        await supabase.from('recette_photos').insert({
-          'recette_id': _recette.id,
-          'user_id': authService.currentUser!.id,
-          'image_url': imageUrl,
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Photo ajoutée avec succès!')),
+        final userId = int.tryParse(authService.currentUser!.id ?? '');
+        await _photoService.addPhoto(
+          recetteId: _recette.id,
+          userId: userId,
+          file: File(image.path),
         );
+
+        NotificationService.showSuccess('Photo ajoutée avec succès!');
 
         setState(() {});
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur lors du chargement de la photo: $e')),
+      NotificationService.showError(
+        'Erreur lors du chargement de la photo: $e',
       );
     }
   }
 
   Future<void> _submitComment() async {
     final authService = Provider.of<AuthService>(context, listen: false);
-    if (!authService.isLoggedIn) return _showLoginDialog();
+    if (!authService.isLoggedIn) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => LoginPage()));
+      return;
+    }
 
     final user = authService.currentUser;
     if (user == null) return;
 
     final text = _commentTextController.text.trim();
     if (text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez écrire un commentaire')),
-      );
+      NotificationService.showWarning('Veuillez écrire un commentaire');
       return;
     }
 
+    final userId = int.tryParse(user.id ?? '');
     final comment = Comments(
       comment: text,
-      userId: user.id,
+      userId: userId,
       recetteId: _recette.id,
     );
 
@@ -1009,19 +1232,20 @@ class _RecetteDetailsPageState extends State<RecetteDetailsPage> {
 
       await _fetchComments();
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Commentaire ajouté avec succès!')),
-      );
+      NotificationService.showSuccess('Commentaire ajouté avec succès!');
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur lors de l\'ajout du commentaire: $e')),
+      NotificationService.showError(
+        'Erreur lors de l\'ajout du commentaire: $e',
       );
     }
   }
 
   void _toggleFavorite() async {
     final authService = Provider.of<AuthService>(context, listen: false);
-    if (!authService.isLoggedIn) return _showLoginDialog();
+    if (!authService.isLoggedIn) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => LoginPage()));
+      return;
+    }
 
     try {
       if (_isFavorite) {
@@ -1031,91 +1255,175 @@ class _RecetteDetailsPageState extends State<RecetteDetailsPage> {
       }
       setState(() => _isFavorite = !_isFavorite);
     } catch (_) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Erreur lors de la mise à jour des favoris'),
-        ),
+      NotificationService.showError(
+        'Erreur lors de la mise à jour des favoris',
       );
     }
-  }
-
-  void _showLoginDialog() {
-    showDialog(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Connexion requise'),
-            content: const Text(
-              'Veuillez vous connecter pour effectuer cette action.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Annuler'),
-              ),
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => LoginPage()),
-                  );
-                },
-                child: const Text('Se connecter'),
-              ),
-            ],
-          ),
-    );
   }
 
   void _showUserMenu() {
     showModalBottomSheet(
       context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(25),
+          topRight: Radius.circular(25),
+        ),
+      ),
       builder:
-          (context) => Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.person),
-                title: const Text('Mon Profil'),
-                onTap: () {
-                  Navigator.pop(context);
-                  final authService = Provider.of<AuthService>(
-                    context,
-                    listen: false,
-                  );
-                  if (authService.currentUser != null) {
+          (context) => Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(25),
+                topRight: Radius.circular(25),
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16.0),
+                  child: Container(
+                    height: 4,
+                    width: 50,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16.0),
+                  child: Text(
+                    'Mon Compte',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF007A33),
+                      fontFamily: 'Cocon',
+                    ),
+                  ),
+                ),
+                const Divider(height: 1),
+                // Menu Items
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF007A33).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.person,
+                      color: Color(0xFF007A33),
+                      size: 24,
+                    ),
+                  ),
+                  title: const Text(
+                    'Mon Profil',
+                    style: TextStyle(
+                      fontFamily: 'Cocon',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  trailing: const Icon(
+                    Icons.arrow_forward_ios,
+                    size: 16,
+                    color: Color(0xFF007A33),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    final authService = Provider.of<AuthService>(
+                      context,
+                      listen: false,
+                    );
+                    if (authService.currentUser != null) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder:
+                              (context) =>
+                                  ProfilePage(user: authService.currentUser!),
+                        ),
+                      );
+                    }
+                  },
+                ),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF007A33).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.favorite,
+                      color: Color(0xFF007A33),
+                      size: 24,
+                    ),
+                  ),
+                  title: const Text(
+                    'Mes Favoris',
+                    style: TextStyle(
+                      fontFamily: 'Cocon',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  trailing: const Icon(
+                    Icons.arrow_forward_ios,
+                    size: 16,
+                    color: Color(0xFF007A33),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
                     Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder:
-                            (context) =>
-                                ProfilePage(user: authService.currentUser!),
-                      ),
+                      MaterialPageRoute(builder: (_) => FavorisPage()),
                     );
-                  }
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.favorite),
-                title: const Text('Mes Favoris'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => FavorisPage()),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.logout),
-                title: const Text('Déconnexion'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Provider.of<AuthService>(context, listen: false).logout();
-                },
-              ),
-            ],
+                  },
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.logout,
+                      color: Colors.red,
+                      size: 24,
+                    ),
+                  ),
+                  title: const Text(
+                    'Déconnexion',
+                    style: TextStyle(
+                      fontFamily: 'Cocon',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.red,
+                    ),
+                  ),
+                  trailing: const Icon(
+                    Icons.arrow_forward_ios,
+                    size: 16,
+                    color: Colors.red,
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Provider.of<AuthService>(context, listen: false).logout();
+                  },
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
           ),
     );
   }

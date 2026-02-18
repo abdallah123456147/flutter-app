@@ -1,206 +1,164 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:http/http.dart' as http;
 import 'package:bennasafi/models/recettes.dart';
+import 'package:bennasafi/services/api_config.dart';
 
 class RecetteDatabase {
-  final SupabaseClient _client = Supabase.instance.client;
+  RecetteDatabase._internal();
+  static final RecetteDatabase _instance = RecetteDatabase._internal();
+  factory RecetteDatabase() => _instance;
 
-  Stream<List<Recettes>> get stream {
-    return _client
-        .from('recettes')
-        .stream(primaryKey: ['id'])
-        .map((data) => data.map((map) => Recettes.fromMap(map)).toList());
+  static final http.Client _client = http.Client();
+
+  Stream<List<Recettes>> get stream async* {
+    yield await fetchAll();
   }
 
-  // Fetch a single recipe with its relations (ingredients via recette_ingredients, niveau, pays)
   Future<Recettes?> fetchById(int id) async {
-    final List<dynamic> data = await _client
-        .from('recettes')
-        .select('''
-          id,
-          name,
-          description,
-          type,
-          soustype,
-          preparation,
-          cuisson,
-          nbre,
-          image,
-          recette_ingredients(
-            id,
-            quantity,
-            unit,
-            ingredients(
-              id,
-              name,
-              type,
-              image
-            )
-          ),
-          niveau(
-            id,
-            name,
-            image
-          ),
-          pays(
-            id,
-            name,
-            image
-          )
-        ''')
-        .eq('id', id)
-        .limit(1);
-
-    if (data.isEmpty) return null;
-    return Recettes.fromMap(data.first as Map<String, dynamic>);
+    try {
+      final uri = Uri.parse('${ApiConfig.baseUrl}/api/recettes/$id');
+      final response = await _client.get(uri);
+      final bodyPreview =
+          response.body.length > 500
+              ? '${response.body.substring(0, 500)}...'
+              : response.body;
+      debugPrint('GET $uri -> ${response.statusCode}');
+      if (response.statusCode != 200) {
+        debugPrint('Response body: $bodyPreview');
+        throw Exception('Failed to load recipe');
+      }
+      final data = jsonDecode(response.body);
+      final map = _extractItem(data);
+      if (map == null) return null;
+      return Recettes.fromMap(map);
+    } catch (e) {
+      debugPrint('Error fetching recipe by id: $e');
+      return null;
+    }
   }
 
   Future<List<Recettes>> fetchBySubtype(String subtypeId) async {
-    try {
-      final List<dynamic> data = await _client
-          .from('recettes')
-          .select('''
-          id,
-          name,
-          description,
-          type,
-          soustype,
-          preparation,
-          cuisson,
-          nbre,
-          image,
-          recette_ingredients(
-            id,
-            quantity,
-            unit,
-            ingredients(
-              id,
-              name,
-              type,
-              image
-            )
-          ),
-          niveau(
-            id,
-            name,
-            image
-          ),
-          pays(
-            id,
-            name,
-            image
-          )
-        ''')
-          .eq('soustype', subtypeId);
+    return fetchAll(soustype: subtypeId);
+  }
 
-      return data
-          .map((map) => Recettes.fromMap(map as Map<String, dynamic>))
+  Future<List<Recettes>> fetchAll({
+    String? type,
+    String? soustype,
+    String? query,
+  }) async {
+    try {
+      final uri = Uri.parse('${ApiConfig.baseUrl}/api/recettes').replace(
+        queryParameters: {
+          if (type != null && type.isNotEmpty) 'type': type,
+          if (soustype != null && soustype.isNotEmpty) 'soustype': soustype,
+          if (query != null && query.isNotEmpty) 'q': query,
+        },
+      );
+
+      final response = await _client.get(uri);
+      final bodyPreview =
+          response.body.length > 500
+              ? '${response.body.substring(0, 500)}...'
+              : response.body;
+      debugPrint('GET $uri -> ${response.statusCode}');
+      if (response.statusCode != 200) {
+        debugPrint('Response body: $bodyPreview');
+        throw Exception('Failed to load recipes');
+      }
+      final data = jsonDecode(response.body);
+      final list = _extractList(data);
+
+      return list
+          .map((item) => Recettes.fromMap(Map<String, dynamic>.from(item)))
           .toList();
     } catch (e) {
-      debugPrint('Error fetching recipes by subtype: $e');
+      debugPrint('Error fetching recipes: $e');
       return [];
+    }
+  }
+
+  Future<Map<String, List<Recettes>>> fetchSections({
+    int limit = 6,
+    int allLimit = 30,
+  }) async {
+    try {
+      final uri = Uri.parse(
+        '${ApiConfig.baseUrl}/api/recettes/sections',
+      ).replace(
+        queryParameters: {
+          'limit': limit.toString(),
+          'all_limit': allLimit.toString(),
+        },
+      );
+
+      final response = await _client.get(uri);
+      if (response.statusCode != 200) {
+        throw Exception('Failed to load recipe sections');
+      }
+
+      final data = jsonDecode(response.body);
+      if (data is! Map || data['data'] is! Map) {
+        throw Exception('Invalid sections payload');
+      }
+
+      final sections = Map<String, dynamic>.from(data['data'] as Map);
+      return {
+        'lef_lef': _parseList(sections['lef_lef']),
+        'omek_sannefa': _parseList(sections['omek_sannefa']),
+        'kool_healthy': _parseList(sections['kool_healthy']),
+        'benna_3alamiya': _parseList(sections['benna_3alamiya']),
+        'plats': _parseList(sections['plats']),
+        'desserts': _parseList(sections['desserts']),
+        'all': _parseList(sections['all']),
+      };
+    } catch (e) {
+      debugPrint('Error fetching recipe sections: $e');
+      return {
+        'lef_lef': [],
+        'omek_sannefa': [],
+        'kool_healthy': [],
+        'benna_3alamiya': [],
+        'plats': [],
+        'desserts': [],
+        'all': [],
+      };
     }
   }
 
   static Future<List<Recettes>> getRecettesBySousType(String soustype) async {
-    try {
-      final SupabaseClient client = Supabase.instance.client;
-      final List<dynamic> data = await client
-          .from('recettes')
-          .select('''
-          id,
-          name,
-          description,
-          type,
-          soustype,
-          preparation,
-          cuisson,
-          nbre,
-          image,
-          recette_ingredients(
-            id,
-            quantity,
-            unit,
-            ingredients(
-              id,
-              name,
-              type,
-              image
-            )
-          ),
-          niveau(
-            id,
-            name,
-            image
-          ),
-          pays(
-            id,
-            name,
-            image
-          )
-        ''')
-          .eq('soustype', soustype);
-
-      return data
-          .map((map) => Recettes.fromMap(map as Map<String, dynamic>))
-          .toList();
-    } catch (e) {
-      debugPrint('Error fetching recipes by sous-type "$soustype": $e');
-      return [];
-    }
+    return _instance.fetchAll(soustype: soustype);
   }
 
-  // Search recipes by name or description
+  static Future<List<Recettes>> getRecettesByType(String type) async {
+    return _instance.fetchAll(type: type);
+  }
+
   static Future<List<Recettes>> searchRecettes(String query) async {
-    try {
-      if (query.trim().isEmpty) {
-        return [];
-      }
+    if (query.trim().isEmpty) return [];
+    return _instance.fetchAll(query: query);
+  }
 
-      final SupabaseClient client = Supabase.instance.client;
-      final List<dynamic> data = await client
-          .from('recettes')
-          .select('''
-          id,
-          name,
-          description,
-          type,
-          soustype,
-          preparation,
-          cuisson,
-          nbre,
-          image,
-          recette_ingredients(
-            id,
-            quantity,
-            unit,
-            ingredients(
-              id,
-              name,
-              type,
-              image
-            )
-          ),
-          niveau(
-            id,
-            name,
-            image
-          ),
-          pays(
-            id,
-            name,
-            image
-          )
-        ''')
-          .or('name.ilike.%$query%,description.ilike.%$query%')
-          .limit(50);
-
-      return data
-          .map((map) => Recettes.fromMap(map as Map<String, dynamic>))
-          .toList();
-    } catch (e) {
-      debugPrint('Error searching recipes with query "$query": $e');
-      return [];
+  static List<dynamic> _extractList(dynamic data) {
+    if (data is Map && data['data'] is List) {
+      return data['data'] as List<dynamic>;
     }
+    if (data is List) return data;
+    return [];
+  }
+
+  static List<Recettes> _parseList(dynamic data) {
+    final list = _extractList(data);
+    return list
+        .map((item) => Recettes.fromMap(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  static Map<String, dynamic>? _extractItem(dynamic data) {
+    if (data is Map && data['data'] is Map) {
+      return Map<String, dynamic>.from(data['data'] as Map);
+    }
+    if (data is Map<String, dynamic>) return data;
+    return null;
   }
 }

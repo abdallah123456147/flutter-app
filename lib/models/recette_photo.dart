@@ -2,7 +2,7 @@ class RecettePhoto {
   final int? id;
   final int recetteId;
   final String imageUrl;
-  final String? userId;
+  final int? userId;
 
   RecettePhoto({
     this.id,
@@ -16,7 +16,7 @@ class RecettePhoto {
       id: map['id'] as int?,
       recetteId: map['recette_id'] as int,
       imageUrl: map['image_url'] as String,
-      userId: map['user_id'] as String?,
+      userId: map['user_id'] as int?,
     );
   }
 

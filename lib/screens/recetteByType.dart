@@ -10,6 +10,8 @@ import 'package:provider/provider.dart';
 import 'package:bennasafi/screens/favoris_page.dart';
 import 'package:bennasafi/screens/profil.dart';
 import 'package:bennasafi/screens/composi.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:shimmer/shimmer.dart';
 
 class RecetteByType extends StatefulWidget {
   const RecetteByType({super.key});
@@ -20,15 +22,13 @@ class RecetteByType extends StatefulWidget {
 
 class _RecetteByTypeState extends State<RecetteByType> {
   final RecetteDatabase _recetteDatabase = RecetteDatabase();
-  final RecetteDatabase _recetteDb = RecetteDatabase();
   bool _isLoading = true;
   String? _errorMessage;
   int _selectedTypeIndex = 0;
   int? _selectedSousTypeIndex; // Nullable: no sous-type selected initially
   List<String> _types = [];
+  List<Recettes> _allRecipes = [];
   final PageController _pageController = PageController();
-  bool _isFavorite = false;
-  late Recettes _recette;
   // Sous-types (categories)
   final List<String> _sousTypes = ['Entrée', 'Plat', 'Dessert'];
 
@@ -55,21 +55,29 @@ class _RecetteByTypeState extends State<RecetteByType> {
   @override
   void initState() {
     super.initState();
-
-    _loadInitialData();
+    _loadRecipes();
   }
 
-  Future<void> _loadInitialData() async {
+  Future<void> _loadRecipes() async {
     try {
       setState(() {
         _isLoading = true;
         _errorMessage = null;
       });
-      await Future.delayed(const Duration(milliseconds: 500));
+      final recipes = await _recetteDatabase.fetchAll();
+      if (!mounted) return;
+      final types = recipes.map((r) => r.type).toSet().toList();
       setState(() {
+        _allRecipes = recipes;
+        _types = types;
+        if (_types.isNotEmpty && _selectedTypeIndex >= _types.length) {
+          _selectedTypeIndex = 0;
+        }
+        _selectedSousTypeIndex = null;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
         _errorMessage = 'Failed to load data: ${e.toString()}';
@@ -135,81 +143,123 @@ class _RecetteByTypeState extends State<RecetteByType> {
     );
   }
 
+  // Build loading shimmer skeleton
+  Widget _buildLoadingShimmer() {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey[300]!,
+      highlightColor: Colors.grey[100]!,
+      child: CustomScrollView(
+        slivers: [
+          SliverAppBar(
+            floating: true,
+            snap: true,
+            elevation: 0,
+            backgroundColor: Colors.white,
+            title: Container(
+              width: 150,
+              height: 20,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 10.0),
+            sliver: SliverGrid(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 16.0,
+                mainAxisSpacing: 20.0,
+                childAspectRatio: 0.9,
+              ),
+              delegate: SliverChildBuilderDelegate((context, index) {
+                return ClipRRect(
+                  borderRadius: BorderRadius.circular(30),
+                  child: Container(
+                    color: Colors.white,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: Container(color: Colors.white)),
+                        Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: double.infinity,
+                                height: 16,
+                                color: Colors.white,
+                              ),
+                              const SizedBox(height: 8),
+                              Container(
+                                width: 120,
+                                height: 12,
+                                color: Colors.white,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }, childCount: 6),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
     if (_errorMessage != null) {
       return Scaffold(body: Center(child: Text(_errorMessage!)));
     }
 
     return Scaffold(
       drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
+        elevation: 15,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.only(
+            topRight: Radius.circular(30),
+            bottomRight: Radius.circular(30),
+          ),
+        ),
+        child: Column(
           children: [
-            DrawerHeader(
-              decoration: BoxDecoration(
-                color: Color(0xFFFFB400),
-              ), // header background
-              child: Text(
-                'Menu',
-                style: TextStyle(
-                  color: Colors.white, // white text for contrast
-                  fontFamily: 'Cocon',
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            ListTile(
-              leading: Icon(
-                Icons.home,
-                color: Color(0xFFFFB400), // yellow-gold icon
-              ),
-              title: Text(
-                'Accueil',
-                style: TextStyle(
-                  fontFamily: 'Cocon',
-                  color: Color(0xFF007A33), // dark text for readability
-                ),
-              ),
-              onTap:
-                  () => Navigator.push(
+            const SizedBox(height: 50),
+            // Menu Items
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                children: [
+                  _buildAnimatedTile(
                     context,
-                    MaterialPageRoute(builder: (_) => Firstpage()),
+                    icon: Icons.home,
+                    title: "Accueil",
+                    page: Firstpage(),
                   ),
-            ),
-            // ListTile(
-            //   leading: Icon(Icons.restaurant_menu, color: Color(0xFFFFB400)),
-            //   title: Text(
-            //     'Recette du jour',
-            //     style: TextStyle(fontFamily: 'Cocon', color: Color(0xFF007A33)),
-            //   ),
-            //   onTap:
-            //       () => Navigator.push(
-            //         context,
-            //         MaterialPageRoute(builder: (_) => Firstpage()),
-            //       ),
-            // ),
-            ListTile(
-              leading: Icon(Icons.kitchen, color: Color(0xFFFFB400)),
-              title: Text(
-                'Composi Dbartek',
-                style: TextStyle(fontFamily: 'Cocon', color: Color(0xFF007A33)),
-              ),
-              onTap:
-                  () => Navigator.push(
+                  _buildAnimatedTile(
                     context,
-                    MaterialPageRoute(builder: (_) => const Composi()),
+                    icon: Icons.menu_book,
+                    title: "Toutes les recettes",
+                    page: RecetteByType(),
                   ),
+                  _buildAnimatedTile(
+                    context,
+                    icon: Icons.kitchen,
+                    title: "Composi Dbartek",
+                    page: const Composi(),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
       ),
-
       appBar: AppBar(
         elevation: 0,
         backgroundColor: Colors.white,
@@ -232,122 +282,95 @@ class _RecetteByTypeState extends State<RecetteByType> {
       body: Column(
         children: [
           // Type selector with arrows and image
-          StreamBuilder<List<Recettes>>(
-            stream: _recetteDatabase.stream,
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return Center(child: Text('Error: ${snapshot.error}'));
-              }
-              if (!snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
+          if (_types.isEmpty)
+            const SizedBox(height: 50)
+          else
+            Column(
+              children: [
+                SizedBox(
+                  height: 100,
 
-              final recipes = snapshot.data!;
-              final types = recipes.map((r) => r.type).toSet().toList();
-
-              if (_types.length != types.length) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  setState(() {
-                    _types = types;
-                    if (_selectedTypeIndex >= _types.length) {
-                      _selectedTypeIndex = 0;
-                    }
-                  });
-                });
-              }
-
-              if (_types.isEmpty) {
-                return const SizedBox(height: 50);
-              }
-
-              return Column(
-                children: [
-                  SizedBox(
-                    height: 100,
-
-                    child: Row(
-                      children: [
-                        // Left arrow
-                        IconButton(
-                          onPressed: _goToPreviousType,
-                          icon: Icon(
-                            Icons.arrow_back_ios,
-                            color: Color(0xFF007A33),
-                            size: 15,
-                          ),
+                  child: Row(
+                    children: [
+                      // Left arrow
+                      IconButton(
+                        onPressed: _goToPreviousType,
+                        icon: Icon(
+                          Icons.arrow_back_ios,
+                          color: Color(0xFF007A33),
+                          size: 15,
                         ),
+                      ),
 
-                        Expanded(
-                          child: PageView.builder(
-                            controller: _pageController,
-                            itemCount:
-                                _types.length *
-                                3, // Create multiple copies for infinite effect
-                            onPageChanged: (index) {
-                              if (_types.isEmpty) return;
+                      Expanded(
+                        child: PageView.builder(
+                          controller: _pageController,
+                          itemCount:
+                              _types.length *
+                              3, // Create multiple copies for infinite effect
+                          onPageChanged: (index) {
+                            if (_types.isEmpty) return;
 
-                              // Calculate the actual index in the original list
-                              final actualIndex = index % _types.length;
+                            // Calculate the actual index in the original list
+                            final actualIndex = index % _types.length;
 
-                              // If we're near the edges, jump to the middle section for seamless looping
-                              if (index < _types.length) {
-                                // Near the beginning - jump to middle section
-                                WidgetsBinding.instance.addPostFrameCallback((
-                                  _,
-                                ) {
-                                  _pageController.jumpToPage(
-                                    index + _types.length,
-                                  );
-                                });
-                              } else if (index >= _types.length * 2) {
-                                // Near the end - jump to middle section
-                                WidgetsBinding.instance.addPostFrameCallback((
-                                  _,
-                                ) {
-                                  _pageController.jumpToPage(
-                                    index - _types.length,
-                                  );
-                                });
-                              }
-
-                              setState(() {
-                                _selectedTypeIndex = actualIndex;
-                                _selectedSousTypeIndex = null;
+                            // If we're near the edges, jump to the middle section for seamless looping
+                            if (index < _types.length) {
+                              // Near the beginning - jump to middle section
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                _pageController.jumpToPage(
+                                  index + _types.length,
+                                );
                               });
-                            },
-                            itemBuilder: (context, index) {
-                              final actualIndex = index % _types.length;
-                              final type = _types[actualIndex];
-                              final data =
-                                  _typeInfo[type] ??
-                                  {'text': type, 'image': 'images/logo2.webp'};
+                            } else if (index >= _types.length * 2) {
+                              // Near the end - jump to middle section
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                _pageController.jumpToPage(
+                                  index - _types.length,
+                                );
+                              });
+                            }
 
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 20,
-                                ),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.center,
-                                  children: [
-                                    SizedBox(
-                                      width: 50,
-                                      height: 50,
-                                      child: ClipRRect(
-                                        child: Image.asset(
-                                          data['image']!,
-                                          fit: BoxFit.contain,
-                                        ),
+                            setState(() {
+                              _selectedTypeIndex = actualIndex;
+                              _selectedSousTypeIndex = null;
+                            });
+                          },
+                          itemBuilder: (context, index) {
+                            final actualIndex = index % _types.length;
+                            final type = _types[actualIndex];
+                            final data =
+                                _typeInfo[type] ??
+                                {'text': type, 'image': 'images/logo2.webp'};
+
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  SizedBox(
+                                    width: 50,
+                                    height: 50,
+                                    child: ClipRRect(
+                                      child: Image.asset(
+                                        data['image']!,
+                                        fit: BoxFit.contain,
                                       ),
                                     ),
-                                    const SizedBox(width: 20),
-                                    Expanded(
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
+                                  ),
+                                  const SizedBox(width: 20),
+                                  Expanded(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.max,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Flexible(
+                                          fit: FlexFit.loose,
+                                          child: Text(
                                             type,
                                             textAlign: TextAlign.center,
                                             style: const TextStyle(
@@ -356,9 +379,14 @@ class _RecetteByTypeState extends State<RecetteByType> {
                                               fontSize: 20,
                                               fontWeight: FontWeight.bold,
                                             ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
                                           ),
-                                          const SizedBox(height: 4),
-                                          Text(
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Flexible(
+                                          fit: FlexFit.loose,
+                                          child: Text(
                                             data['text']!,
                                             textAlign: TextAlign.center,
                                             style: const TextStyle(
@@ -369,77 +397,76 @@ class _RecetteByTypeState extends State<RecetteByType> {
                                             maxLines: 2,
                                             overflow: TextOverflow.ellipsis,
                                           ),
-                                        ],
-                                      ),
+                                        ),
+                                      ],
                                     ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
                         ),
+                      ),
 
-                        // Right arrow
-                        IconButton(
-                          onPressed: _goToNextType,
-                          icon: Icon(
-                            Icons.arrow_forward_ios,
-                            color: Color(0xFF007A33),
-                            size: 15,
-                          ),
+                      // Right arrow
+                      IconButton(
+                        onPressed: _goToNextType,
+                        icon: Icon(
+                          Icons.arrow_forward_ios,
+                          color: Color(0xFF007A33),
+                          size: 15,
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
+                ),
 
-                  // Sous-type selector (Entrée, Plat, Dessert)
-                  SizedBox(
-                    height: 30,
+                // Sous-type selector (Entrée, Plat, Dessert)
+                SizedBox(
+                  height: 30,
 
-                    // margin: const EdgeInsets.symmetric(vertical: 1),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: List.generate(_sousTypes.length, (index) {
-                        final isSelected = index == _selectedSousTypeIndex;
-                        return GestureDetector(
-                          onTap: () => _selectSousType(index),
-                          child: Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 6),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 3,
+                  // margin: const EdgeInsets.symmetric(vertical: 1),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(_sousTypes.length, (index) {
+                      final isSelected = index == _selectedSousTypeIndex;
+                      return GestureDetector(
+                        onTap: () => _selectSousType(index),
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 6),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color:
+                                isSelected
+                                    ? const Color(0xFF007A33)
+                                    : Colors.transparent,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: const Color(0xFF007A33),
+                              width: 1,
                             ),
-                            decoration: BoxDecoration(
+                          ),
+                          child: Text(
+                            _sousTypes[index],
+                            style: TextStyle(
                               color:
                                   isSelected
-                                      ? const Color(0xFF007A33)
-                                      : Colors.transparent,
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: const Color(0xFF007A33),
-                                width: 1,
-                              ),
-                            ),
-                            child: Text(
-                              _sousTypes[index],
-                              style: TextStyle(
-                                color:
-                                    isSelected
-                                        ? Colors.white
-                                        : const Color(0xFF007A33),
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                              ),
+                                      ? Colors.white
+                                      : const Color(0xFF007A33),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
-                        );
-                      }),
-                    ),
+                        ),
+                      );
+                    }),
                   ),
-                ],
-              );
-            },
-          ),
+                ),
+              ],
+            ),
 
           SizedBox(height: 30),
 
@@ -447,17 +474,14 @@ class _RecetteByTypeState extends State<RecetteByType> {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.all(1.0),
-              child: StreamBuilder<List<Recettes>>(
-                stream: _recetteDatabase.stream,
-                builder: (context, snapshot) {
-                  if (snapshot.hasError) {
-                    return Center(child: Text('Error: ${snapshot.error}'));
-                  }
-                  if (!snapshot.hasData) {
-                    return const Center(child: CircularProgressIndicator());
+              child: Builder(
+                builder: (context) {
+                  // Show loading shimmer while data is loading
+                  if (_isLoading) {
+                    return _buildLoadingShimmer();
                   }
 
-                  final recipes = snapshot.data!;
+                  final recipes = _allRecipes;
                   if (_types.isEmpty || _selectedTypeIndex >= _types.length) {
                     return const Center(child: Text('No recette found'));
                   }
@@ -476,7 +500,7 @@ class _RecetteByTypeState extends State<RecetteByType> {
                           final matchesType = r.type == selectedType;
                           // Adjust this line based on your Recettes model field name
                           final matchesSousType =
-                              r.soustype?.toLowerCase() ==
+                              r.soustype.toLowerCase() ==
                               selectedSousType.toLowerCase();
                           return matchesType && matchesSousType;
                         }).toList();
@@ -528,19 +552,20 @@ class _RecetteByTypeState extends State<RecetteByType> {
                                 Expanded(
                                   child: ClipRRect(
                                     borderRadius: BorderRadius.circular(30),
-                                    child: Image.network(
-                                      recipe.image,
+                                    child: CachedNetworkImage(
+                                      imageUrl: recipe.image,
                                       fit: BoxFit.cover,
-                                      errorBuilder: (
-                                        context,
-                                        error,
-                                        stackTrace,
-                                      ) {
-                                        return Image.asset(
-                                          'images/logo2.webp',
-                                          fit: BoxFit.contain,
-                                        );
-                                      },
+                                      memCacheWidth: 600,
+                                      memCacheHeight: 600,
+                                      placeholder:
+                                          (context, url) => Container(
+                                            color: Colors.grey.shade200,
+                                          ),
+                                      errorWidget:
+                                          (context, url, error) => Image.asset(
+                                            'images/logo2.webp',
+                                            fit: BoxFit.contain,
+                                          ),
                                     ),
                                   ),
                                 ),
@@ -582,52 +607,234 @@ class _RecetteByTypeState extends State<RecetteByType> {
   void _showUserMenu() {
     showModalBottomSheet(
       context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(25),
+          topRight: Radius.circular(25),
+        ),
+      ),
       builder:
-          (context) => Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.person),
-                title: const Text('Mon Profil'),
-                onTap: () {
-                  Navigator.pop(context);
-                  final authService = Provider.of<AuthService>(
-                    context,
-                    listen: false,
-                  );
-                  if (authService.currentUser != null) {
+          (context) => Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(25),
+                topRight: Radius.circular(25),
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16.0),
+                  child: Container(
+                    height: 4,
+                    width: 50,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16.0),
+                  child: Text(
+                    'Mon Compte',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF007A33),
+                      fontFamily: 'Cocon',
+                    ),
+                  ),
+                ),
+                const Divider(height: 1),
+                // Menu Items
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF007A33).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.person,
+                      color: Color(0xFF007A33),
+                      size: 24,
+                    ),
+                  ),
+                  title: const Text(
+                    'Mon Profil',
+                    style: TextStyle(
+                      fontFamily: 'Cocon',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  trailing: const Icon(
+                    Icons.arrow_forward_ios,
+                    size: 16,
+                    color: Color(0xFF007A33),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    final authService = Provider.of<AuthService>(
+                      context,
+                      listen: false,
+                    );
+                    if (authService.currentUser != null) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder:
+                              (context) =>
+                                  ProfilePage(user: authService.currentUser!),
+                        ),
+                      );
+                    }
+                  },
+                ),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF007A33).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.favorite,
+                      color: Color(0xFF007A33),
+                      size: 24,
+                    ),
+                  ),
+                  title: const Text(
+                    'Mes Favoris',
+                    style: TextStyle(
+                      fontFamily: 'Cocon',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  trailing: const Icon(
+                    Icons.arrow_forward_ios,
+                    size: 16,
+                    color: Color(0xFF007A33),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
                     Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder:
-                            (context) =>
-                                ProfilePage(user: authService.currentUser!),
-                      ),
+                      MaterialPageRoute(builder: (_) => FavorisPage()),
                     );
-                  }
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.favorite),
-                title: const Text('Mes Favoris'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => FavorisPage()),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.logout),
-                title: const Text('Déconnexion'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Provider.of<AuthService>(context, listen: false).logout();
-                },
-              ),
-            ],
+                  },
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.logout,
+                      color: Colors.red,
+                      size: 24,
+                    ),
+                  ),
+                  title: const Text(
+                    'Déconnexion',
+                    style: TextStyle(
+                      fontFamily: 'Cocon',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.red,
+                    ),
+                  ),
+                  trailing: const Icon(
+                    Icons.arrow_forward_ios,
+                    size: 16,
+                    color: Colors.red,
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Provider.of<AuthService>(context, listen: false).logout();
+                  },
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
           ),
+    );
+  }
+
+  Widget _buildAnimatedTile(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required Widget page,
+  }) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 500),
+      curve: Curves.easeOut,
+      builder: (context, value, child) {
+        return Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(-30 * (1 - value), 0),
+            child: child,
+          ),
+        );
+      },
+      child: ListTile(
+        leading: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: const Color(0xFF007A33).withOpacity(0.15),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: const Color(0xFF007A33), size: 22),
+        ),
+        title: Text(
+          title,
+          style: const TextStyle(
+            fontFamily: 'Cocon',
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF007A33),
+          ),
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        tileColor: Colors.transparent,
+        hoverColor: const Color(0xFF007A33).withOpacity(0.08),
+        splashColor: const Color(0xFF007A33).withOpacity(0.12),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        onTap: () {
+          Navigator.pop(context);
+          Navigator.push(
+            context,
+            PageRouteBuilder(
+              transitionDuration: const Duration(milliseconds: 450),
+              pageBuilder: (_, __, ___) => page,
+              transitionsBuilder: (_, animation, __, child) {
+                return SlideTransition(
+                  position: Tween(
+                    begin: const Offset(1, 0),
+                    end: Offset.zero,
+                  ).animate(
+                    CurvedAnimation(parent: animation, curve: Curves.easeOut),
+                  ),
+                  child: FadeTransition(opacity: animation, child: child),
+                );
+              },
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -723,55 +930,6 @@ class _RecetteByTypeState extends State<RecetteByType> {
     );
   }
 
-  void _toggleFavorite() async {
-    final authService = Provider.of<AuthService>(context, listen: false);
-    if (!authService.isLoggedIn) return _showLoginDialog();
-
-    try {
-      if (_isFavorite) {
-        await authService.removeFromFavorites(_recette.id);
-      } else {
-        await authService.addToFavorites(_recette.id);
-      }
-      setState(() => _isFavorite = !_isFavorite);
-    } catch (_) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Erreur lors de la mise à jour des favoris'),
-        ),
-      );
-    }
-  }
-
-  void _showLoginDialog() {
-    showDialog(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Connexion requise'),
-            content: const Text(
-              'Veuillez vous connecter pour effectuer cette action.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Annuler'),
-              ),
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => LoginPage()),
-                  );
-                },
-                child: const Text('Se connecter'),
-              ),
-            ],
-          ),
-    );
-  }
-
   Widget _buildFavoritesFooterButton() {
     return InkWell(
       onTap: () {
@@ -782,7 +940,10 @@ class _RecetteByTypeState extends State<RecetteByType> {
             MaterialPageRoute(builder: (_) => FavorisPage()),
           );
         } else {
-          _showLoginDialog();
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => LoginPage()),
+          );
         }
       },
       child: Column(

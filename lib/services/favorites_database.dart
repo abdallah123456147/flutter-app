@@ -1,139 +1,81 @@
-import 'package:supabase/supabase.dart';
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:bennasafi/models/favorites.dart';
+import 'package:bennasafi/services/api_config.dart';
 
 class FavoritesDatabase {
-  final SupabaseClient supabase;
+  static final http.Client _client = http.Client();
 
-  FavoritesDatabase({required this.supabase});
+  Future<String?> _getToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('auth_token');
+  }
 
-  // Add a recipe to favorites
-  Future<Favoris> addToFavorites(String userId, int recetteId) async {
-    try {
-      final favoris = Favoris.createNew(userId, recetteId);
+  Map<String, String> _authHeaders(String token) {
+    return {
+      'Authorization': 'Bearer $token',
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    };
+  }
 
-      final response =
-          await supabase
-              .from('favoris')
-              .insert(favoris.toJson())
-              .select()
-              .single();
+  Future<List<Favoris>> getUserFavorites() async {
+    final token = await _getToken();
+    if (token == null || token.isEmpty) return [];
 
-      return Favoris.fromJson(response);
-    } on PostgrestException catch (e) {
-      throw Exception('Error adding to favorites: ${e.message}');
-    } catch (e) {
-      throw Exception('Unexpected error: $e');
+    final uri = Uri.parse('${ApiConfig.baseUrl}/api/favoris');
+    final response = await _client.get(uri, headers: _authHeaders(token));
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load favorites');
+    }
+
+    final data = jsonDecode(response.body);
+    final list = _extractList(data);
+    return list
+        .map((item) => Favoris.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<void> addToFavorites(int recetteId) async {
+    final token = await _getToken();
+    if (token == null || token.isEmpty) return;
+
+    final uri = Uri.parse('${ApiConfig.baseUrl}/api/favoris');
+    final response = await _client.post(
+      uri,
+      headers: _authHeaders(token),
+      body: jsonEncode({'recette_id': recetteId}),
+    );
+
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw Exception('Failed to add favorite');
     }
   }
 
-  // Remove a recipe from favorites
-  Future<void> removeFromFavorites(String favorisId) async {
-    try {
-      await supabase.from('favoris').delete().eq('id', favorisId);
-    } on PostgrestException catch (e) {
-      throw Exception('Error removing from favorites: ${e.message}');
-    } catch (e) {
-      throw Exception('Unexpected error: $e');
+  Future<void> removeFromFavoritesByRecipe(int recetteId) async {
+    final token = await _getToken();
+    if (token == null || token.isEmpty) return;
+
+    final uri = Uri.parse('${ApiConfig.baseUrl}/api/favoris/$recetteId');
+    final response = await _client.delete(uri, headers: _authHeaders(token));
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to remove favorite');
     }
   }
 
-  // Remove from favorites by user and recipe ID
-  Future<void> removeFromFavoritesByUserAndRecipe(
-    String userId,
-    int recetteId,
-  ) async {
-    try {
-      await supabase
-          .from('favoris')
-          .delete()
-          .eq('user_id', userId)
-          .eq('recette_id', recetteId);
-    } on PostgrestException catch (e) {
-      throw Exception('Error removing from favorites: ${e.message}');
-    } catch (e) {
-      throw Exception('Unexpected error: $e');
-    }
+  Future<bool> isRecipeFavorited(int recetteId) async {
+    final favorites = await getUserFavorites();
+    return favorites.any((f) => f.recetteId == recetteId);
   }
 
-  // Get all favorites for a user
-  Future<List<Favoris>> getUserFavorites(String userId) async {
-    try {
-      final response = await supabase
-          .from('favoris')
-          .select('*')
-          .eq('user_id', userId)
-          .order('created_at', ascending: false);
-
-      return (response as List).map((json) => Favoris.fromJson(json)).toList();
-    } on PostgrestException catch (e) {
-      throw Exception('Error fetching favorites: ${e.message}');
-    } catch (e) {
-      throw Exception('Unexpected error: $e');
+  static List<dynamic> _extractList(dynamic data) {
+    if (data is Map && data['data'] is List) {
+      return data['data'] as List<dynamic>;
     }
-  }
-
-  // Check if a recipe is favorited by user
-  Future<bool> isRecipeFavorited(String userId, int recetteId) async {
-    try {
-      final response =
-          await supabase
-              .from('favoris')
-              .select('id')
-              .eq('user_id', userId)
-              .eq('recette_id', recetteId)
-              .maybeSingle();
-
-      return response != null;
-    } on PostgrestException catch (e) {
-      throw Exception('Error checking favorite status: ${e.message}');
-    } catch (e) {
-      throw Exception('Unexpected error: $e');
-    }
-  }
-
-  // Get favorite ID for a user and recipe
-  Future<String?> getFavoriteId(String userId, int recetteId) async {
-    try {
-      final response =
-          await supabase
-              .from('favoris')
-              .select('id')
-              .eq('user_id', userId)
-              .eq('recette_id', recetteId)
-              .maybeSingle();
-
-      return response?['id'] as String?;
-    } on PostgrestException catch (e) {
-      throw Exception('Error getting favorite ID: ${e.message}');
-    } catch (e) {
-      throw Exception('Unexpected error: $e');
-    }
-  }
-
-  // Get favorite count for a recipe
-  // Future<int> getRecipeFavoriteCount(String recetteId) async {
-  //   try {
-  //     final response = await supabase
-  //         .from('favoris')
-  //         .select('id', count: CountOption.exact)
-  //         .eq('recette_id', recetteId);
-
-  //     return response.count ?? 0;
-  //   } on PostgrestException catch (e) {
-  //     throw Exception('Error getting favorite count: ${e.message}');
-  //   } catch (e) {
-  //     throw Exception('Unexpected error: $e');
-  //   }
-  // }
-
-  // Remove all favorites for a user (useful for account deletion)
-  Future<void> clearUserFavorites(String userId) async {
-    try {
-      await supabase.from('favoris').delete().eq('user_id', userId);
-    } on PostgrestException catch (e) {
-      throw Exception('Error clearing favorites: ${e.message}');
-    } catch (e) {
-      throw Exception('Unexpected error: $e');
-    }
+    if (data is List) return data;
+    return [];
   }
 }

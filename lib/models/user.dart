@@ -47,7 +47,7 @@ class Users {
 
   factory Users.fromMap(Map<String, dynamic> map) {
     return Users(
-      id: map['id'],
+      id: map['id']?.toString(),
       name: map['name'] ?? '',
       email: map['email'] ?? '',
       password: map['password'] ?? '',
@@ -55,7 +55,7 @@ class Users {
       photoRecette: map['photo_recette'],
       comment: map['comment'],
       recetteId: map['recette_id'],
-      gender: map['gender'],
+      gender: map['gender'] ?? '',
       // favoris:
       //     (map['favoris'] as String?)
       //         ?.split(',')

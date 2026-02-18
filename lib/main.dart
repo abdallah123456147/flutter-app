@@ -1,20 +1,14 @@
 import 'package:bennasafi/screens/welcome_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:bennasafi/services/auth_service.dart';
 import 'package:bennasafi/screens/firstpage.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // Add this import
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Supabase.initialize(
-    url: 'https://crhyqjbhwrnbbhmdlhch.supabase.co',
-    anonKey:
-        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHlxamJod3JuYmJobWRsaGNoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc5MjQwNjcsImV4cCI6MjA3MzUwMDA2N30.yBO8i2q0xtgAmcLMnyp6rQVzdDH8tgkdl7wLkEJEJDI',
-  );
   //remove rotation
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
@@ -118,7 +112,9 @@ class _MyAppState extends State<MyApp> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              CircularProgressIndicator(),
+              const CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF007A33)),
+              ),
               SizedBox(height: 20),
               Text(
                 'Vérification de la connexion...',

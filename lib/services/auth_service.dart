@@ -1,229 +1,269 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
-import 'package:uuid/uuid.dart';
-import '../models/user.dart';
-import '../services/supabase_service.dart';
-import 'favorites_database.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/user.dart';
+import '../services/api_config.dart';
+import 'favorites_database.dart';
 
 class AuthService with ChangeNotifier {
   Users? _currentUser;
   bool _isLoggedIn = false;
-  final SupabaseService _supabaseService = SupabaseService();
-  late final FavoritesDatabase _favoritesDb = FavoritesDatabase(
-    supabase: Supabase.instance.client,
-  );
   String? _lastError;
+  String? _authToken;
+
+  static final http.Client _client = http.Client();
   static const String _kUserIdKey = 'current_user_id';
+  static const String _kTokenKey = 'auth_token';
+
+  final FavoritesDatabase _favoritesDb = FavoritesDatabase();
 
   Users? get currentUser => _currentUser;
   bool get isLoggedIn => _isLoggedIn;
   String? get lastError => _lastError;
 
-  // Login method
   Future<bool> login(String email, String password) async {
     try {
-      final Users? user = await _supabaseService.getUserByEmail(email);
-      if (user != null && user.password == password) {
-        _currentUser = user;
-        _isLoggedIn = true;
-        // persist user id
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(_kUserIdKey, user.id!);
-        notifyListeners();
-        return true;
+      _lastError = null;
+      final uri = Uri.parse('${ApiConfig.baseUrl}/api/auth/login');
+      final response = await _client.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email, 'password': password}),
+      );
+
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        return false;
       }
-      return false;
+
+      final data = jsonDecode(response.body);
+      final payload = _extractItem(data);
+      if (payload == null) return false;
+
+      final userMap = Map<String, dynamic>.from(payload['user']);
+      final token = payload['token'] as String?;
+      if (token == null || token.isEmpty) return false;
+
+      _currentUser = Users.fromMap(userMap);
+      _isLoggedIn = true;
+      _authToken = token;
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kUserIdKey, _currentUser!.id ?? '');
+      await prefs.setString(_kTokenKey, token);
+      notifyListeners();
+      return true;
     } catch (e) {
-      print('Login error: $e');
+      _lastError = e.toString();
       return false;
     }
   }
 
-  // Register method
   Future<bool> register(Users user) async {
     try {
       _lastError = null;
-      final normalizedEmail = user.email.trim().toLowerCase();
-      final newUser = await _supabaseService.registerUser(
-        Users(
-          id: user.id ?? const Uuid().v4(),
-          name: user.name.trim(),
-          email: normalizedEmail,
-          password: user.password,
-          photo: user.photo,
-          photoRecette: user.photoRecette,
-          recetteId: user.recetteId,
-          gender: user.gender,
-          // favoris: user.favoris,
-          createdAt: user.createdAt ?? DateTime.now(),
-          updatedAt: user.updatedAt ?? DateTime.now(),
-        ),
+      final uri = Uri.parse('${ApiConfig.baseUrl}/api/auth/register');
+      final response = await _client.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'name': user.name.trim(),
+          'email': user.email.trim().toLowerCase(),
+          'password': user.password,
+          'password_confirmation': user.password,
+          'gender': user.gender,
+        }),
       );
-      if (newUser != null) {
-        _currentUser = newUser;
-        _isLoggedIn = true;
-        // persist user id
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(_kUserIdKey, newUser.id!);
-        notifyListeners();
-        return true;
-      }
-      _lastError = 'Unknown error creating user';
-      return false;
-    } catch (e) {
-      // If unique constraint violation occurs, treat as email exists
-      final message = e.toString().toLowerCase();
-      if (message.contains('duplicate key') ||
-          message.contains('unique constraint') ||
-          message.contains('already exists')) {
-        _lastError = 'Cette adresse email est déjà utilisée';
+
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        _lastError = 'Inscription echouee';
         return false;
       }
+
+      final data = jsonDecode(response.body);
+      final payload = _extractItem(data);
+      if (payload == null) return false;
+
+      final userMap = Map<String, dynamic>.from(payload['user']);
+      final token = payload['token'] as String?;
+      if (token == null || token.isEmpty) return false;
+
+      _currentUser = Users.fromMap(userMap);
+      _isLoggedIn = true;
+      _authToken = token;
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kUserIdKey, _currentUser!.id ?? '');
+      await prefs.setString(_kTokenKey, token);
+      notifyListeners();
+      return true;
+    } catch (e) {
       _lastError = e.toString();
-      print('Registration error: $e');
       return false;
     }
   }
 
-  // Logout method
   void logout() {
     _currentUser = null;
     _isLoggedIn = false;
-    SharedPreferences.getInstance().then((prefs) => prefs.remove(_kUserIdKey));
+    _authToken = null;
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.remove(_kUserIdKey);
+      prefs.remove(_kTokenKey);
+    });
     notifyListeners();
   }
 
-  // Initialize from persisted storage
   Future<void> init() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final savedUserId = prefs.getString(_kUserIdKey);
-      if (savedUserId == null || savedUserId.isEmpty) return;
-      final user = await _supabaseService.getUserById(savedUserId);
-      if (user != null) {
-        _currentUser = user;
-        _isLoggedIn = true;
-        notifyListeners();
-      } else {
-        // cleanup if user not found
+      final token = prefs.getString(_kTokenKey);
+      if (token == null || token.isEmpty) return;
+
+      _authToken = token;
+      final uri = Uri.parse('${ApiConfig.baseUrl}/api/auth/me');
+      final response = await _client.get(
+        uri,
+        headers: _authHeaders(token),
+      );
+
+      if (response.statusCode != 200) {
         await prefs.remove(_kUserIdKey);
+        await prefs.remove(_kTokenKey);
+        return;
       }
-    } catch (e) {
+
+      final data = jsonDecode(response.body);
+      final userMap = _extractItem(data);
+      if (userMap == null) return;
+
+      _currentUser = Users.fromMap(Map<String, dynamic>.from(userMap));
+      _isLoggedIn = true;
+      notifyListeners();
+    } catch (_) {
       // ignore init errors
     }
   }
 
-  // Add to favorites (favoris table)
+  Future<void> logoutFromServer() async {
+    final token = await _getToken();
+    if (token == null || token.isEmpty) return;
+    final uri = Uri.parse('${ApiConfig.baseUrl}/api/auth/logout');
+    await _client.post(uri, headers: _authHeaders(token));
+  }
+
   Future<void> addToFavorites(int recetteId) async {
-    if (_currentUser == null) return;
-    final userId = _currentUser!.id!;
-    final already = await _favoritesDb.isRecipeFavorited(userId, recetteId);
-    if (already) return;
-    await _favoritesDb.addToFavorites(userId, recetteId);
+    await _favoritesDb.addToFavorites(recetteId);
     notifyListeners();
   }
 
-  // Remove from favorites (favoris table)
   Future<void> removeFromFavorites(int recetteId) async {
-    if (_currentUser == null) return;
-    await _favoritesDb.removeFromFavoritesByUserAndRecipe(
-      _currentUser!.id!,
-      recetteId,
-    );
+    await _favoritesDb.removeFromFavoritesByRecipe(recetteId);
     notifyListeners();
   }
 
-  // Check if recipe is in favorites
   Future<bool> isFavorite(int recetteId) async {
-    if (_currentUser == null) return false;
-    return _favoritesDb.isRecipeFavorited(_currentUser!.id!, recetteId);
+    return _favoritesDb.isRecipeFavorited(recetteId);
   }
 
-  // Update user recipe data
-  Future<void> updateUserRecipeData(
-    String? photoRecette,
-    String? comment,
-    int recetteId,
-  ) async {
-    if (_currentUser != null) {
-      await _supabaseService.updateUserRecipeData(
-        _currentUser!.id!,
-        photoRecette,
-        comment,
-        recetteId,
-      );
-      // Update local user data
-      _currentUser = _currentUser!.copyWith(
-        photoRecette: photoRecette,
-        comment: comment,
-        recetteId: recetteId,
-      );
-      notifyListeners();
-    }
-  }
-
-  // Update user profile (name, email, photo)
-  Future<bool> updateProfile({
-    String? name,
-    String? email,
-    String? photo,
-  }) async {
+  Future<bool> updateProfile({String? name, String? email, String? photo}) async {
     if (_currentUser == null) return false;
     try {
-      // Check if email is being changed and if it already exists
-      if (email != null && 
-          email.trim().isNotEmpty && 
-          email.trim().toLowerCase() != _currentUser!.email.toLowerCase()) {
-        final emailExists = await _supabaseService.checkEmailExists(
-          email.trim().toLowerCase(),
-        );
-        if (emailExists) {
-          _lastError = 'Cette adresse email est déjà utilisée';
-          return false;
-        }
+      _lastError = null;
+      final token = await _getToken();
+      if (token == null || token.isEmpty) return false;
+
+      final uri = Uri.parse('${ApiConfig.baseUrl}/api/auth/profile');
+      final body = <String, dynamic>{};
+      if (name != null && name.trim().isNotEmpty) body['name'] = name.trim();
+      if (email != null && email.trim().isNotEmpty) {
+        body['email'] = email.trim().toLowerCase();
+      }
+      if (photo != null && photo.trim().isNotEmpty) body['photo'] = photo.trim();
+
+      final response = await _client.patch(
+        uri,
+        headers: _authHeaders(token),
+        body: jsonEncode(body),
+      );
+
+      if (response.statusCode != 200) {
+        _lastError = 'Erreur lors de la mise a jour du profil';
+        return false;
       }
 
-      // Update in Supabase
-      await _supabaseService.updateUserProfile(
-        _currentUser!.id!,
-        name,
-        email,
-        photo,
-      );
-      
-      // Refresh user data from database to ensure we have the latest data
-      final updatedUser = await _supabaseService.getUserById(_currentUser!.id!);
-      if (updatedUser != null) {
-        _currentUser = updatedUser;
-        notifyListeners();
-        return true;
-      } else {
-        // If refresh fails, update local data as fallback
-        _currentUser = _currentUser!.copyWith(
-          name: name ?? _currentUser!.name,
-          email: email ?? _currentUser!.email,
-          photo: photo ?? _currentUser!.photo,
-        );
-        notifyListeners();
-        return true;
-      }
+      final data = jsonDecode(response.body);
+      final userMap = _extractItem(data);
+      if (userMap == null) return false;
+
+      _currentUser = Users.fromMap(Map<String, dynamic>.from(userMap));
+      notifyListeners();
+      return true;
     } catch (e) {
-      print('Error updating profile: $e');
-      final errorMsg = e.toString().toLowerCase();
-      if (errorMsg.contains('duplicate key') ||
-          errorMsg.contains('unique constraint') ||
-          errorMsg.contains('already exists')) {
-        _lastError = 'Cette adresse email est déjà utilisée';
-      } else {
-        _lastError = e.toString();
-      }
+      _lastError = e.toString();
       return false;
     }
   }
+
+  Future<bool> uploadProfilePhoto(String filePath) async {
+    try {
+      _lastError = null;
+      final token = await _getToken();
+      if (token == null || token.isEmpty) return false;
+
+      final uri = Uri.parse('${ApiConfig.baseUrl}/api/auth/profile/photo');
+      final request = http.MultipartRequest('POST', uri)
+        ..headers.addAll({
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        })
+        ..files.add(await http.MultipartFile.fromPath('photo', filePath));
+
+      final streamed = await request.send();
+      final response = await http.Response.fromStream(streamed);
+      if (response.statusCode != 200) {
+        _lastError = 'Erreur lors du telechargement de la photo';
+        return false;
+      }
+
+      final data = jsonDecode(response.body);
+      final userMap = _extractItem(data);
+      if (userMap == null) return false;
+
+      _currentUser = Users.fromMap(Map<String, dynamic>.from(userMap));
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _lastError = e.toString();
+      return false;
+    }
+  }
+
+  Future<String?> _getToken() async {
+    if (_authToken != null && _authToken!.isNotEmpty) return _authToken;
+    final prefs = await SharedPreferences.getInstance();
+    _authToken = prefs.getString(_kTokenKey);
+    return _authToken;
+  }
+
+  Map<String, String> _authHeaders(String token) {
+    return {
+      'Authorization': 'Bearer $token',
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    };
+  }
+
+  static Map<String, dynamic>? _extractItem(dynamic data) {
+    if (data is Map && data['data'] is Map) {
+      return Map<String, dynamic>.from(data['data'] as Map);
+    }
+    if (data is Map<String, dynamic>) return data;
+    return null;
+  }
 }
 
-// Add copyWith method to Users class
 extension UserCopyWith on Users {
   Users copyWith({
     String? name,
@@ -246,7 +286,6 @@ extension UserCopyWith on Users {
       comment: comment ?? this.comment,
       recetteId: recetteId ?? this.recetteId,
       gender: gender ?? this.gender,
-      // favoris: favoris ?? this.favoris,
       createdAt: createdAt,
       updatedAt: updatedAt,
     );

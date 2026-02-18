@@ -1,9 +1,9 @@
 import 'user.dart';
 
 class Comments {
-  final String? id;
+  final int? id;
   final String? comment;
-  final String? userId;
+  final int? userId;
   final int? recetteId;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -33,10 +33,10 @@ class Comments {
 
   factory Comments.fromMap(Map<String, dynamic> map) {
     return Comments(
-      id: map['id'],
+      id: _asInt(map['id']),
       comment: map['comment'],
-      userId: map['user_id'],
-      recetteId: map['recette_id'],
+      userId: _asInt(map['user_id']),
+      recetteId: _asInt(map['recette_id']),
       createdAt:
           map['created_at'] != null ? DateTime.parse(map['created_at']) : null,
       updatedAt:
@@ -47,9 +47,9 @@ class Comments {
   factory Comments.fromMapWithUser(Map<String, dynamic> map) {
     final base = Comments.fromMap(map);
     Users? joinedUser;
-    final dynamic usersMap = map['users'];
-    if (usersMap is Map<String, dynamic>) {
-      joinedUser = Users.fromMap(usersMap);
+    final dynamic userMap = map['user'];
+    if (userMap is Map<String, dynamic>) {
+      joinedUser = Users.fromMap(userMap);
     }
     return Comments(
       id: base.id,
@@ -60,5 +60,11 @@ class Comments {
       updatedAt: base.updatedAt,
       user: joinedUser,
     );
+  }
+
+  static int? _asInt(dynamic value) {
+    if (value is int) return value;
+    if (value is String) return int.tryParse(value);
+    return null;
   }
 }
